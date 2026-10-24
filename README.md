@@ -1,8 +1,8 @@
 # NexusHub ERP
 
-ISP-flavoured demo app: subscriber/connection lifecycle, bandwidth marketplace with prorated billing, hierarchical ticket dispatch with shift/overlap checks, ops analytics, and an append-only audit trail.
+ISP-flavoured operations app: subscriber/connection lifecycle, bandwidth marketplace with prorated billing, hierarchical ticket dispatch with shift/overlap checks, ops analytics, and an append-only audit trail.
 
-Built against [`NEXUSHUB_SPEC.md`](NEXUSHUB_SPEC.md). Design decisions (and the ones we rejected) are in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+Design decisions (and the ones we rejected) are in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## What it does
 

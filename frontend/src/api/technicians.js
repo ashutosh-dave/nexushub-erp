@@ -36,16 +36,29 @@ export function useTechnicianScheduleQuery(id, from, to) {
   });
 }
 
-/** Own schedule for the logged-in technician (uses req.user.id on the server). */
+/**
+ * Own schedule for the logged-in technician.
+ * Prefers GET /technicians/me/schedule (server uses req.user.id); falls back to
+ * /technicians/:id/schedule when the me route is not deployed yet.
+ */
 export function useMyScheduleQuery(from, to, options = {}) {
+  const { userId, enabled, ...rest } = options;
   return useQuery({
-    queryKey: queryKeys.technicians.schedule('me', from, to),
+    queryKey: queryKeys.technicians.schedule(userId ? `me:${userId}` : 'me', from, to),
     queryFn: async () => {
-      const { data } = await api.get('/technicians/me/schedule', { params: { from, to } });
-      return data.data;
+      try {
+        const { data } = await api.get('/technicians/me/schedule', { params: { from, to } });
+        return data.data;
+      } catch (err) {
+        if (userId && err.response?.status === 404) {
+          const { data } = await api.get(`/technicians/${userId}/schedule`, { params: { from, to } });
+          return data.data;
+        }
+        throw err;
+      }
     },
-    enabled: Boolean(from && to) && options.enabled !== false,
-    ...options,
+    enabled: Boolean(from && to) && enabled !== false,
+    ...rest,
   });
 }
 

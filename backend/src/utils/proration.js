@@ -18,7 +18,7 @@ function toDate(date) {
 }
 
 /**
- * Cycle length N = days in the calendar month of billing_cycle_start (SPEC: actual days of that cycle).
+ * Cycle length N = days in the calendar month of billing_cycle_start (actual days of that cycle).
  * Cycle runs from billing_cycle_start for N days.
  * @param {string|Date} billingCycleStart
  * @param {string|Date} effectiveDate

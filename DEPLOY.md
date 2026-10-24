@@ -1,4 +1,4 @@
-# NexusHub ERP — Deploy checklist (Phase 3 / 8)
+# NexusHub ERP — Deploy checklist
 
 Local API + MySQL are verified (`/api/health`, login, analytics, overlap → 409).  
 Public GitHub: https://github.com/ashutosh-dave/nexushub-erp  

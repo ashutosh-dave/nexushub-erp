@@ -415,12 +415,13 @@ function TaskRow({ task, onAdvance, advancing }) {
 }
 
 function TechnicianSelfView() {
+  const { user } = useAuth();
   const { from, to } = useMemo(() => weekRange(), []);
   const today = from;
 
   // Backend scopes GET /tasks to req.user.id for technicians — do not filter by client id
   const tasksQuery = useTasksQuery({ page: 1, pageSize: 100 });
-  const scheduleQuery = useMyScheduleQuery(from, to);
+  const scheduleQuery = useMyScheduleQuery(from, to, { userId: user?.id });
   const statusMut = useTaskStatusMutation();
   const [pendingId, setPendingId] = useState(null);
 

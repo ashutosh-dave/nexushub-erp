@@ -40,7 +40,7 @@ export async function myConnections(actor) {
      JOIN plans p ON p.id = c.plan_id
      JOIN pops pop ON pop.id = c.pop_id`;
 
-  // Admin read: browse Active connections (change-plan still allowed per SPEC)
+  // Admin read: browse Active connections (change-plan still allowed)
   if (actor.role === 'admin') {
     const [rows] = await getPool().execute(
       `${select}

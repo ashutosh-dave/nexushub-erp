@@ -16,3 +16,5 @@ coverage/
 .mysql-data/
 .vercel
 .env*
+NEXUSHUB_SPEC.md
+.cursor/
