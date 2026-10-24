@@ -1,30 +1,32 @@
 # NexusHub ERP
 
-Distributed broadband marketplace and field-operations platform for ISP administrators: subscriber/connection lifecycle, bandwidth marketplace with prorated billing, hierarchical complaint dispatch with shift/overlap validation, live operations analytics, and a full audit trail.
+ISP-flavoured demo app: subscriber/connection lifecycle, bandwidth marketplace with prorated billing, hierarchical ticket dispatch with shift/overlap checks, ops analytics, and an append-only audit trail.
 
-**Source of truth:** [`NEXUSHUB_SPEC.md`](NEXUSHUB_SPEC.md)  
-**Design rationale:** [`ARCHITECTURE.md`](ARCHITECTURE.md)
+Built against [`NEXUSHUB_SPEC.md`](NEXUSHUB_SPEC.md). Design decisions (and the ones we rejected) are in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
-## Features
+## What it does
 
-- Admin connection lifecycle (Pending → Active → Suspended → Terminated) with static IP + POP assignment
+- Admin connection lifecycle (Pending → Active → Suspended → Terminated) with static IP + POP
 - B2B/B2C marketplace upgrades/downgrades with proration preview and billing logs
 - Master tickets split into field sub-tasks; Kanban dispatch with drag-and-drop ranking
-- Strict technician window overlap + shift containment checks (HTTP 409)
-- Operations dashboard (Recharts) with SLA breach / at-risk panels and 10s polling
-- Append-only audit log for status, plan, IP, and technician assignment changes
+- Technician window overlap + shift containment (HTTP 409 when it conflicts)
+- Ops dashboard (Recharts) with SLA breach / at-risk panels; 10s polling, no sockets
+- Append-only audit log for status, plan, IP, and tech assignment changes
+- Buyer self-signup (creates subscriber + Active starter connection)
+- Ticket notes timeline in the dispatch drawer; dismissible per-role tips in the shell
 
 ## Architecture overview
 
 ```
-React (Vite SPA)  --JWT/REST-->  Express API (Render)  -->  MySQL 8 (Aiven/Railway)
-                                      |
-                      controllers → services (+ transactions)
-                                      |
-                                 audit_logs (same TX)
+React (Vite SPA / Vercel)  --JWT/REST-->  Express (Render)  -->  MySQL 8 (Aiven)
+                                              |
+                              routes → controllers → services
+                                              |
+                                    mysql2 raw SQL + audit_logs
+                                    (same DB transaction as the write)
 ```
 
-Layering and transaction/audit flow are detailed in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+“Live” boards poll every 10s via TanStack Query. Details and trade-offs: [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Tech stack
 
@@ -32,25 +34,25 @@ Layering and transaction/audit flow are detailed in [`ARCHITECTURE.md`](ARCHITEC
 |-------|--------|
 | Runtime | Node.js 20+ |
 | API | Express.js 4 |
-| Database | MySQL 8 (InnoDB, utf8mb4) via `mysql2/promise` (raw SQL) |
+| Database | MySQL 8 (InnoDB, utf8mb4) via `mysql2/promise` (raw SQL, no ORM) |
 | Validation | zod |
-| Auth | JWT + bcryptjs |
+| Auth | JWT (8h) + bcryptjs |
 | Frontend | React 18 + Vite (JavaScript/JSX) |
 | UI | Tailwind CSS + shadcn-style components |
 | Data UI | TanStack Query v5, TanStack Table v8, Recharts, @dnd-kit |
-| Deploy | MySQL host + Render (API) + Vercel (SPA) |
+| Deploy | Aiven MySQL + Render (API) + Vercel (SPA) |
 
 ## Local setup
 
 ### Prerequisites
 
 - Node.js 20+
-- MySQL 8 reachable locally or remotely
+- MySQL 8 (local or remote)
 
 ### 1. Clone and install
 
 ```bash
-git clone <repo-url> nexushub-erp
+git clone https://github.com/ashutosh-dave/nexushub-erp.git
 cd nexushub-erp
 cd backend && npm install
 cd ../frontend && npm install
@@ -58,19 +60,25 @@ cd ../frontend && npm install
 
 ### 2. Environment
 
-Copy examples and fill values:
-
 ```bash
 cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
 ```
 
+Fill DB credentials and `JWT_SECRET`. Frontend needs `VITE_API_BASE_URL` (local default is usually `http://localhost:5000/api`).
+
 ### 3. Database
 
 ```bash
 cd backend
-npm run db:migrate   # runs database/schema.sql
-npm run db:seed      # demo users + 40+ subscribers, tickets, shifts
+npm run db:migrate   # runs database/schema.sql (destructive on existing tables)
+npm run db:seed      # demo users + subscribers, tickets, shifts
+```
+
+Additive patches on an already-seeded hosted DB (e.g. `ticket_notes`):
+
+```bash
+npm run db:migrate:up
 ```
 
 ### 4. Run
@@ -96,7 +104,7 @@ cd frontend && npm run dev
 | `NODE_ENV` | `development` / `production` |
 | `PORT` | HTTP port (default `5000`) |
 | `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME` | MySQL connection |
-| `DB_SSL` | `true` when the host requires SSL (Aiven/Railway) |
+| `DB_SSL` | `true` when the host requires SSL (Aiven) |
 | `JWT_SECRET` | Signing secret for access tokens |
 | `JWT_EXPIRES_IN` | e.g. `8h` |
 | `CORS_ORIGIN` | Allowed frontend origin(s), comma-separated |
@@ -115,19 +123,20 @@ Schema: [`database/schema.sql`](database/schema.sql)
 
 - `subscribers` 1—* `connections` → `plans`, `pops`
 - `connections` 1—* `plan_changes` / `billing_logs`
-- `users` (roles) ; buyers link via `subscriber_id`
+- `users` (roles); buyers link via `subscriber_id`
 - `tickets` 1—* `ticket_tasks` (optional `technician_id` + dispatch window)
+- `tickets` 1—* `ticket_notes` (append-only timeline)
 - `technician_shifts` per technician/date
 - `audit_logs` append-only
 
 ## Business rules (summary)
 
-- **Connection statuses:** only allowed transitions; Terminated is final; terminate releases static IP.
-- **Proration:** immediate effect; credit old + charge new for remaining days in cycle; two `billing_logs` rows + `plan_changes` + audit in one transaction.
-- **Workflow:** Open → In-Progress → Field Visit → Resolved (one step); lead/admin may step back; ticket resolve blocked by open tasks.
-- **Overlap:** non-Resolved task windows must not overlap; window must sit inside a shift; touching boundaries OK → else 409.
+- **Connection statuses:** only allowed transitions; Terminated is final; terminate releases static IP. Illegal transition → 422; duplicate IPv4 → 409.
+- **Proration:** immediate effect; credit old + charge new for remaining days in cycle; two `billing_logs` rows + `plan_changes` + audit in one transaction. Math in integer cents, round half up per row.
+- **Workflow:** Open → In-Progress → Field Visit → Resolved (one step). Lead/admin may step back one. Ticket resolve blocked while sub-tasks remain open. Tasks cannot leave Open without technician + window.
+- **Overlap:** lock technician with `FOR UPDATE`; non-Resolved windows must not overlap; window must sit inside a shift; touching boundaries OK → else 409.
 - **Rank:** per-status global contiguous `rank_index` from 0; status move recompacts; in-column reorder is not audited.
-- **Audit:** status, plan, tech assign/reassign/unassign, connection create/status/IP.
+- **Audit:** status, plan, tech assign/reassign/unassign, connection create/status/IP, ticket `NOTE_ADDED`.
 
 ## API reference
 
@@ -149,6 +158,7 @@ Errors: `{ "error": { "code", "message", "details" } }`
 | GET | `/connections/:id/history` | support+ | audit+billing+plan changes |
 | GET/POST | `/marketplace/*` | buyer/admin | packages, change-plan, preview, billing |
 | GET/POST/PATCH | `/tickets`, `/tasks` | support roles; tech own tasks | reorder, assign, status |
+| GET/POST | `/tickets/:id/notes` | support+admin; tech if assigned | append-only notes |
 | GET/POST/DELETE | `/technicians`, `/technician-shifts` | lead/admin manage shifts | available?start&end |
 | GET | `/analytics/overview` | support+ | KPIs + distributions |
 | GET | `/analytics/connections-trend` | support+ | `?days=` |
@@ -183,7 +193,7 @@ Password for all: **`Password@123`**
 
 ## Repository
 
-Public source: https://github.com/ashutosh-dave/nexushub-erp
+https://github.com/ashutosh-dave/nexushub-erp
 
 ## Live URLs
 
@@ -197,12 +207,12 @@ Free Render may cold-start slowly (~30–60s) on the first request after idle. T
 
 ### Deployment notes
 
-Follow [`DEPLOY.md`](DEPLOY.md) for GitHub → hosted MySQL → Render → Vercel.
+Step-by-step: [`DEPLOY.md`](DEPLOY.md). Short version:
 
-1. Provision MySQL (Aiven or Railway). Enable SSL if required (`DB_SSL=true`).
-2. From a machine with DB access: set `backend/.env`, run `npm run db:migrate` then `npm run db:seed`.
+1. Provision MySQL on **Aiven** (Railway MySQL was dropped as unreliable for this build). Enable SSL (`DB_SSL=true`).
+2. From a machine with DB access: set `backend/.env`, run `npm run db:migrate` then `npm run db:seed`. Later schema adds: `npm run db:migrate:up`.
 3. **Render:** Web Service, root `backend`, start `node src/server.js`, health `/api/health`, set env vars including `CORS_ORIGIN` = Vercel URL.
-4. **Vercel:** root `frontend`, framework Vite, env `VITE_API_BASE_URL` = `https://<render-host>/api`. SPA rewrite in `frontend/vercel.json`.
+4. **Vercel:** root `frontend`, framework Vite, env `VITE_API_BASE_URL` = `https://nexushub-erp.onrender.com/api`. SPA rewrite in `frontend/vercel.json`.
 
 ## Tests
 
@@ -225,3 +235,4 @@ cd frontend && npm run build
 - Plan changes take effect **immediately** (effective date = today UTC date).
 - Single currency amounts (decimal as stored; no FX).
 - Seed is safe to re-run only on empty `users` table (skips if data present).
+- Full `db:migrate` drops/recreates tables — use `db:migrate:up` on hosted DBs that already have data.
