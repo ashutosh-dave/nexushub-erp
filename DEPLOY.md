@@ -1,7 +1,12 @@
 # NexusHub ERP — Deploy checklist (Phase 3 / 8)
 
 Local API + MySQL are verified (`/api/health`, login, analytics, overlap → 409).  
-Public GitHub + Render + Vercel + hosted MySQL require your account logins.
+Public GitHub: https://github.com/ashutosh-dave/nexushub-erp  
+Frontend live: https://nexushub-erp.vercel.app (SSO protection disabled).  
+**Railway abandoned** (unreliable). Use **Aiven free MySQL** + **Render** for API.
+
+### Blocker (action needed)
+Complete **Sign in to GitHub to continue to Aiven** in the Cursor browser tab (OAuth for console.aiven.io). After the Aiven console loads, create a free MySQL service and paste connection details here (or leave the console open so the agent can continue).
 
 ## 1. Public GitHub repo
 

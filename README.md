@@ -180,15 +180,19 @@ Password for all: **`Password@123`**
 | `buyer@nexushub.test` | buyer (B2C) |
 | `buyer.b2b@nexushub.test` | buyer (B2B) |
 
+## Repository
+
+Public source: https://github.com/ashutosh-dave/nexushub-erp
+
 ## Live URLs
 
 | Service | URL |
 |---------|-----|
-| Frontend | _set after Vercel deploy_ |
-| Backend | _set after Render deploy_ |
+| Frontend | https://nexushub-erp.vercel.app |
+| Backend | _pending Render deploy (needs Aiven MySQL)_ |
 | Health | `{BACKEND}/api/health` |
 
-Local verification (this workspace): API on `http://localhost:5000`, MySQL 8.4 local, login + analytics + marketplace proration + overlap 409 exercised.
+Local verification (this workspace): API on `http://localhost:5000`, MySQL 8.4 local, login + analytics + marketplace proration + overlap 409 exercised. Vercel SSO protection disabled for public access.
 
 ### Deployment notes
 
