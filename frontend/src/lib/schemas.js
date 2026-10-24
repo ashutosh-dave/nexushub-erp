@@ -5,6 +5,19 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
+export const registerSchema = z
+  .object({
+    name: z.string().min(1, 'Name is required').max(120),
+    email: z.string().email('Enter a valid email'),
+    password: z.string().min(8, 'At least 8 characters'),
+    confirmPassword: z.string().min(1, 'Confirm your password'),
+    segment: z.enum(['B2C', 'B2B']),
+  })
+  .refine((v) => v.password === v.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  });
+
 export const subscriberSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   type: z.enum(['B2C', 'B2B']),

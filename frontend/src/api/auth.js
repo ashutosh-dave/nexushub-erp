@@ -16,6 +16,19 @@ export function useLoginMutation() {
   });
 }
 
+export function useRegisterMutation() {
+  const { login } = useAuth();
+  return useMutation({
+    mutationFn: async (body) => {
+      const { data } = await api.post('/auth/register', body);
+      return data.data;
+    },
+    onSuccess: (data) => {
+      login(data.token, data.user);
+    },
+  });
+}
+
 export function useMeQuery(enabled = true) {
   const { isAuthenticated } = useAuth();
   return useQuery({

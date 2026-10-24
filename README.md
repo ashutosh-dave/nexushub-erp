@@ -131,14 +131,15 @@ Schema: [`database/schema.sql`](database/schema.sql)
 
 ## API reference
 
-Base path: `/api`. Auth: `Authorization: Bearer <token>` except `/health` and `/auth/login`.
+Base path: `/api`. Auth: `Authorization: Bearer <token>` except `/health`, `/auth/login`, and `/auth/register`.
 
 Envelope: `{ "data": ... }` or list `{ "data": ..., "meta": { "page", "pageSize", "total" } }`  
 Errors: `{ "error": { "code", "message", "details" } }`
 
 | Method | Path | Roles | Notes |
 |--------|------|-------|-------|
-| POST | `/auth/login` | public | `{ email, password }` → `{ token, user }` |
+| POST | `/auth/login` | public | `{ email, password }` → `{ token, user }` (rate-limited) |
+| POST | `/auth/register` | public | buyer self-serve: `{ name, email, password, segment: B2C\|B2B }` → `{ token, user }`; creates subscriber + Active starter connection; 409 on duplicate email; cannot register as admin/support/tech |
 | GET | `/auth/me` | any auth | current user |
 | GET | `/health` | public | liveness + DB ping |
 | GET/POST/PATCH | `/pops` | read any; write admin | utilisation on list |
