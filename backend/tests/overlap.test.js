@@ -72,6 +72,15 @@ describe('windowContainedInShift', () => {
     expect(ok).toBe(true);
   });
 
+  it('accepts when mysql2 returns shift_date as a Date object', () => {
+    const ok = windowContainedInShift('2026-01-01T14:00:00Z', '2026-01-01T15:00:00Z', {
+      shift_date: new Date('2026-01-01T00:00:00.000Z'),
+      start_time: '09:00:00',
+      end_time: '17:00:00',
+    });
+    expect(ok).toBe(true);
+  });
+
   it('rejects window outside shift hours', () => {
     const ok = windowContainedInShift('2026-01-01T07:00:00Z', '2026-01-01T08:00:00Z', {
       shift_date: '2026-01-01',
