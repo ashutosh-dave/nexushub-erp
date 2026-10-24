@@ -1,8 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client.js';
 import { queryKeys } from './queryKeys.js';
 
-export function useTechniciansQuery() {
+export function useTechniciansQuery(options = {}) {
   return useQuery({
     queryKey: queryKeys.technicians.list,
     queryFn: async () => {
@@ -10,6 +10,7 @@ export function useTechniciansQuery() {
       return data.data;
     },
     staleTime: 30_000,
+    ...options,
   });
 }
 
@@ -32,5 +33,36 @@ export function useTechnicianScheduleQuery(id, from, to) {
       return data.data;
     },
     enabled: Boolean(id && from && to),
+  });
+}
+
+export function useCreateShiftMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ technicianId, ...body }) => {
+      const { data } = await api.post(`/technicians/${technicianId}/shifts`, body);
+      return data.data;
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['technicians'] });
+      if (vars?.technicianId) {
+        qc.invalidateQueries({
+          queryKey: ['technicians', 'schedule', vars.technicianId],
+        });
+      }
+    },
+  });
+}
+
+export function useDeleteShiftMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (shiftId) => {
+      const { data } = await api.delete(`/technician-shifts/${shiftId}`);
+      return data.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['technicians'] });
+    },
   });
 }

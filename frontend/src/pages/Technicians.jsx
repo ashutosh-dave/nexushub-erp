@@ -1,8 +1,15 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
+import { Plus, Trash2 } from 'lucide-react';
 import { useAuth } from '../lib/auth.jsx';
 import { useTasksQuery, useTaskStatusMutation } from '../api/tasks.js';
-import { useTechnicianScheduleQuery } from '../api/technicians.js';
+import {
+  useCreateShiftMutation,
+  useDeleteShiftMutation,
+  useTechnicianScheduleQuery,
+  useTechniciansQuery,
+} from '../api/technicians.js';
 import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 import { formatDateTime, getApiError } from '../lib/utils.js';
 import { Loader } from '../components/shared/Loader.jsx';
@@ -11,6 +18,9 @@ import { EmptyState } from '../components/shared/EmptyState.jsx';
 import { StatusBadge } from '../components/shared/StatusBadge.jsx';
 import { Button } from '../components/ui/Button.jsx';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card.jsx';
+import { Dialog, DialogContent, DialogFooter } from '../components/ui/Dialog.jsx';
+import { Input } from '../components/ui/Input.jsx';
+import { Label } from '../components/ui/Label.jsx';
 
 const NEXT_STATUS = {
   Open: 'In-Progress',
@@ -18,16 +28,276 @@ const NEXT_STATUS = {
   'Field Visit': 'Resolved',
 };
 
-export default function Technicians() {
-  useDocumentTitle('Technicians');
-  const { user, hasRole } = useAuth();
-  const isTech = hasRole('technician');
-  const techId = isTech ? user?.id : undefined;
-
+function weekRange() {
   const from = new Date().toISOString().slice(0, 10);
   const toDate = new Date();
   toDate.setDate(toDate.getDate() + 7);
   const to = toDate.toISOString().slice(0, 10);
+  return { from, to };
+}
+
+function formatShiftDate(value) {
+  if (!value) return '—';
+  if (typeof value === 'string') return value.slice(0, 10);
+  try {
+    return new Date(value).toISOString().slice(0, 10);
+  } catch {
+    return String(value);
+  }
+}
+
+function AdminTechniciansView() {
+  const { from, to } = useMemo(() => weekRange(), []);
+  const listQuery = useTechniciansQuery();
+  const [selectedId, setSelectedId] = useState(null);
+  const [shiftOpen, setShiftOpen] = useState(false);
+
+  const technicians = listQuery.data || [];
+
+  useEffect(() => {
+    if (!selectedId && technicians.length) {
+      setSelectedId(technicians[0].id);
+    }
+  }, [technicians, selectedId]);
+
+  const scheduleQuery = useTechnicianScheduleQuery(selectedId, from, to);
+  const createShift = useCreateShiftMutation();
+  const deleteShift = useDeleteShiftMutation();
+
+  const shiftForm = useForm({
+    defaultValues: {
+      shift_date: from,
+      start_time: '09:00',
+      end_time: '17:00',
+    },
+  });
+
+  const selected = technicians.find((t) => t.id === selectedId);
+
+  const onCreateShift = shiftForm.handleSubmit((values) => {
+    if (!selectedId) return;
+    createShift.mutate(
+      {
+        technicianId: selectedId,
+        shift_date: values.shift_date,
+        start_time: values.start_time.length === 5 ? `${values.start_time}:00` : values.start_time,
+        end_time: values.end_time.length === 5 ? `${values.end_time}:00` : values.end_time,
+      },
+      {
+        onSuccess: () => {
+          toast.success('Shift added');
+          setShiftOpen(false);
+          shiftForm.reset({
+            shift_date: from,
+            start_time: '09:00',
+            end_time: '17:00',
+          });
+        },
+        onError: (err) => toast.error(getApiError(err).message),
+      }
+    );
+  });
+
+  const onDeleteShift = (shiftId) => {
+    deleteShift.mutate(shiftId, {
+      onSuccess: () => toast.success('Shift removed'),
+      onError: (err) => toast.error(getApiError(err).message),
+    });
+  };
+
+  if (listQuery.isLoading) return <Loader />;
+  if (listQuery.error) {
+    return (
+      <ErrorState message={getApiError(listQuery.error).message} onRetry={() => listQuery.refetch()} />
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">Technicians</h1>
+        <p className="text-sm text-slate-600">
+          Field roster, current load, and shifts for the next 7 days. Assign work from Dispatch.
+        </p>
+      </div>
+
+      {technicians.length === 0 ? (
+        <EmptyState title="No technicians" description="Seed or activate technician users to manage shifts." />
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+          <Card>
+            <CardHeader>
+              <CardTitle>Roster &amp; load</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <ul className="divide-y divide-slate-100">
+                {technicians.map((tech) => {
+                  const active = tech.id === selectedId;
+                  return (
+                    <li key={tech.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(tech.id)}
+                        className={`flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors ${
+                          active ? 'bg-blue-50' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <div>
+                          <p className={`font-medium ${active ? 'text-blue-800' : 'text-slate-900'}`}>
+                            {tech.name}
+                          </p>
+                          <p className="text-xs text-slate-500">{tech.email}</p>
+                        </div>
+                        <div className="text-right text-xs text-slate-600">
+                          <p>
+                            <span className="font-semibold text-slate-900">{tech.open_tasks ?? 0}</span>{' '}
+                            open
+                          </p>
+                          <p>
+                            <span className="font-semibold text-slate-900">{tech.tasks_today ?? 0}</span>{' '}
+                            today
+                          </p>
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+              <div>
+                <CardTitle>{selected ? selected.name : 'Schedule'}</CardTitle>
+                <p className="mt-1 text-xs text-slate-500">
+                  {from} → {to}
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!selectedId}
+                onClick={() => setShiftOpen(true)}
+              >
+                <Plus className="h-4 w-4" />
+                Add shift
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {scheduleQuery.isLoading ? (
+                <Loader className="py-4" />
+              ) : scheduleQuery.error ? (
+                <ErrorState
+                  message={getApiError(scheduleQuery.error).message}
+                  onRetry={() => scheduleQuery.refetch()}
+                />
+              ) : (
+                <>
+                  <div>
+                    <h3 className="mb-2 text-sm font-semibold text-slate-800">Shifts</h3>
+                    {(scheduleQuery.data?.shifts || []).length === 0 ? (
+                      <p className="text-sm text-slate-500">No shifts in this window.</p>
+                    ) : (
+                      <ul className="space-y-2 text-sm">
+                        {scheduleQuery.data.shifts.map((s) => (
+                          <li
+                            key={s.id}
+                            className="flex items-center justify-between gap-2 rounded border border-slate-100 px-3 py-2"
+                          >
+                            <span>
+                              {formatShiftDate(s.shift_date)}:{' '}
+                              {String(s.start_time).slice(0, 5)} – {String(s.end_time).slice(0, 5)}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              aria-label="Delete shift"
+                              disabled={deleteShift.isPending}
+                              onClick={() => onDeleteShift(s.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-slate-500" />
+                            </Button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  <div>
+                    <h3 className="mb-2 text-sm font-semibold text-slate-800">Assigned windows</h3>
+                    {(scheduleQuery.data?.tasks || []).length === 0 ? (
+                      <p className="text-sm text-slate-500">No scheduled assignments.</p>
+                    ) : (
+                      <ul className="divide-y divide-slate-100 text-sm">
+                        {scheduleQuery.data.tasks.map((task) => (
+                          <li key={task.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                            <div>
+                              <p className="font-medium text-slate-900">{task.title}</p>
+                              <p className="text-xs text-slate-500">
+                                {task.ticket_no}
+                                {task.window_start
+                                  ? ` · ${formatDateTime(task.window_start)} – ${formatDateTime(task.window_end)}`
+                                  : null}
+                              </p>
+                            </div>
+                            <StatusBadge status={task.status} />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <Dialog open={shiftOpen} onOpenChange={setShiftOpen}>
+        <DialogContent
+          title="Add shift"
+          description={selected ? `For ${selected.name}` : undefined}
+        >
+          <form className="space-y-4" onSubmit={onCreateShift}>
+            <div className="space-y-1.5">
+              <Label htmlFor="shift_date">Date</Label>
+              <Input id="shift_date" type="date" {...shiftForm.register('shift_date', { required: true })} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="start_time">Start</Label>
+                <Input
+                  id="start_time"
+                  type="time"
+                  {...shiftForm.register('start_time', { required: true })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="end_time">End</Label>
+                <Input id="end_time" type="time" {...shiftForm.register('end_time', { required: true })} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShiftOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={createShift.isPending}>
+                {createShift.isPending ? 'Saving…' : 'Save shift'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function TechnicianSelfView() {
+  const { user } = useAuth();
+  const techId = user?.id;
+  const { from, to } = useMemo(() => weekRange(), []);
 
   const tasksQuery = useTasksQuery(
     { technicianId: techId, page: 1, pageSize: 100 },
@@ -41,8 +311,8 @@ export default function Technicians() {
     [tasksQuery.data]
   );
 
-  if (isTech && tasksQuery.isLoading) return <Loader />;
-  if (isTech && tasksQuery.error) {
+  if (tasksQuery.isLoading) return <Loader />;
+  if (tasksQuery.error) {
     return (
       <ErrorState message={getApiError(tasksQuery.error).message} onRetry={() => tasksQuery.refetch()} />
     );
@@ -59,18 +329,6 @@ export default function Technicians() {
       }
     );
   };
-
-  if (!isTech) {
-    return (
-      <div className="space-y-4">
-        <h1 className="text-2xl font-bold text-slate-900">Technicians</h1>
-        <p className="text-sm text-slate-600">
-          Field technicians use this page to manage assigned tasks and view shifts. Sign in as a
-          technician to see the task board.
-        </p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -134,7 +392,8 @@ export default function Technicians() {
               ) : (
                 scheduleQuery.data.shifts.map((s) => (
                   <li key={s.id} className="rounded border border-slate-100 px-3 py-2">
-                    {s.shift_date}: {String(s.start_time).slice(0, 5)} – {String(s.end_time).slice(0, 5)}
+                    {formatShiftDate(s.shift_date)}: {String(s.start_time).slice(0, 5)} –{' '}
+                    {String(s.end_time).slice(0, 5)}
                   </li>
                 ))
               )}
@@ -142,6 +401,26 @@ export default function Technicians() {
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+export default function Technicians() {
+  useDocumentTitle('Technicians');
+  const { hasRole } = useAuth();
+
+  if (hasRole('technician')) {
+    return <TechnicianSelfView />;
+  }
+
+  if (hasRole('admin', 'support_lead')) {
+    return <AdminTechniciansView />;
+  }
+
+  return (
+    <div className="space-y-4">
+      <h1 className="text-2xl font-bold text-slate-900">Technicians</h1>
+      <p className="text-sm text-slate-600">You do not have access to this page.</p>
     </div>
   );
 }
