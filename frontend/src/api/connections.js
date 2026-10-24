@@ -2,6 +2,17 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './client.js';
 import { queryKeys } from './queryKeys.js';
 
+export function useConnectionsQuery(params = {}) {
+  return useQuery({
+    queryKey: queryKeys.connections.list(params),
+    queryFn: async () => {
+      const { data } = await api.get('/connections', { params });
+      return { items: data.data, meta: data.meta };
+    },
+    placeholderData: (prev) => prev,
+  });
+}
+
 export function useConnectionHistoryQuery(id) {
   return useQuery({
     queryKey: queryKeys.connections.history(id),

@@ -8,6 +8,7 @@
     "build": "npm ci --omit=dev",
     "start": "node src/server.js",
     "db:migrate": "node src/scripts/migrate.js",
+    "db:migrate:up": "node src/scripts/migrateUp.js",
     "db:seed": "node src/scripts/seed.js",
     "test": "vitest run",
     "test:watch": "vitest"

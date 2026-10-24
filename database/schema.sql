@@ -11,6 +11,7 @@ USE nexushub;
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS audit_logs;
+DROP TABLE IF EXISTS ticket_notes;
 DROP TABLE IF EXISTS ticket_tasks;
 DROP TABLE IF EXISTS tickets;
 DROP TABLE IF EXISTS technician_shifts;
@@ -209,6 +210,18 @@ CREATE TABLE ticket_tasks (
   CONSTRAINT fk_tasks_ticket FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE RESTRICT,
   CONSTRAINT fk_tasks_technician FOREIGN KEY (technician_id) REFERENCES users(id) ON DELETE RESTRICT,
   CONSTRAINT chk_tasks_window CHECK (window_end IS NULL OR window_start IS NULL OR window_end > window_start)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE ticket_notes (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  ticket_id BIGINT UNSIGNED NOT NULL,
+  author_id BIGINT UNSIGNED NOT NULL,
+  body TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_ticket_notes_ticket (ticket_id, created_at),
+  KEY idx_ticket_notes_author (author_id),
+  CONSTRAINT fk_ticket_notes_ticket FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_ticket_notes_author FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------------

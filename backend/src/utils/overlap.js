@@ -16,11 +16,20 @@ export function windowsOverlap(a, b) {
  * @param {string|Date} windowEnd
  * @param {{ shift_date: string, start_time: string, end_time: string }} shift
  */
-/** Normalize MySQL DATE / Date / ISO string to YYYY-MM-DD (UTC calendar day). */
-function toUtcDateStr(value) {
+/**
+ * Normalize MySQL DATE / Date / ISO string to YYYY-MM-DD.
+ * mysql2 returns DATE as a JS Date at *local* midnight for that calendar day
+ * (e.g. IST → previous-day 18:30Z). Use local Y/M/D, not toISOString().
+ */
+function toSqlDateStr(value) {
   if (value == null) return '';
   if (typeof value === 'string') return value.slice(0, 10);
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (value instanceof Date) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
   return String(value).slice(0, 10);
 }
 
@@ -28,7 +37,7 @@ export function windowContainedInShift(windowStart, windowEnd, shift) {
   const start = new Date(windowStart);
   const end = new Date(windowEnd);
   const dateStr = start.toISOString().slice(0, 10);
-  if (dateStr !== toUtcDateStr(shift.shift_date)) return false;
+  if (dateStr !== toSqlDateStr(shift.shift_date)) return false;
   if (end.toISOString().slice(0, 10) !== dateStr) return false;
 
   const [sh, sm, ss = '0'] = String(shift.start_time).split(':');

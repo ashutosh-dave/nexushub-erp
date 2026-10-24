@@ -95,12 +95,14 @@ export default function Marketplace() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Marketplace</h1>
-        {isAdmin ? (
-          <p className="mt-1 text-sm text-slate-500">
-            Admin view: browse packages and Active connections. Buyers only see their own.
-          </p>
-        ) : null}
+        <h1 className="text-2xl font-bold text-slate-900">
+          {isAdmin ? 'Marketplace' : 'Browse & change plans'}
+        </h1>
+        <p className="mt-1 text-sm text-slate-600">
+          {isAdmin
+            ? 'Browse packages and Active connections. Buyers only see their own.'
+            : 'Compare plans for your connection and preview proration before you change.'}
+        </p>
       </div>
 
       {(connections.data || []).length > 0 ? (

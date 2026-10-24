@@ -91,3 +91,28 @@ export function useCreateTasksMutation(ticketId) {
     },
   });
 }
+
+export function useTicketNotesQuery(ticketId) {
+  return useQuery({
+    queryKey: [...queryKeys.tickets.detail(ticketId), 'notes'],
+    queryFn: async () => {
+      const { data } = await api.get(`/tickets/${ticketId}/notes`);
+      return data.data;
+    },
+    enabled: Boolean(ticketId),
+  });
+}
+
+export function useCreateTicketNoteMutation(ticketId) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body) => {
+      const { data } = await api.post(`/tickets/${ticketId}/notes`, { body });
+      return data.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.tickets.detail(ticketId) });
+      qc.invalidateQueries({ queryKey: [...queryKeys.tickets.detail(ticketId), 'notes'] });
+    },
+  });
+}

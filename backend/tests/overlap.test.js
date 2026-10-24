@@ -72,9 +72,11 @@ describe('windowContainedInShift', () => {
     expect(ok).toBe(true);
   });
 
-  it('accepts when mysql2 returns shift_date as a Date object', () => {
+  it('accepts when mysql2 returns shift_date as a local-midnight Date', () => {
+    // Simulate mysql2 DATE in a +05:30 zone: calendar 2026-01-01 → prior evening UTC
+    const mysqlDate = new Date(2026, 0, 1, 0, 0, 0, 0);
     const ok = windowContainedInShift('2026-01-01T14:00:00Z', '2026-01-01T15:00:00Z', {
-      shift_date: new Date('2026-01-01T00:00:00.000Z'),
+      shift_date: mysqlDate,
       start_time: '09:00:00',
       end_time: '17:00:00',
     });

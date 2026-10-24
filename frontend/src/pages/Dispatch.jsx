@@ -13,12 +13,14 @@ import { CSS } from '@dnd-kit/utilities';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
-import { AlertTriangle, GripVertical, Plus } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, GripVertical, Plus } from 'lucide-react';
 import {
   useCreateTasksMutation,
   useCreateTicketMutation,
+  useCreateTicketNoteMutation,
   useTicketQuery,
   useTicketReorderMutation,
+  useTicketStatusMutation,
   useTicketsQuery,
 } from '../api/tickets.js';
 import {
@@ -27,6 +29,7 @@ import {
   useTasksQuery,
 } from '../api/tasks.js';
 import { useAvailableTechniciansQuery } from '../api/technicians.js';
+import { useConnectionsQuery } from '../api/connections.js';
 import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 import { useAuth } from '../lib/auth.jsx';
 import { assignTaskSchema, ticketCreateSchema, taskCreateSchema } from '../lib/schemas.js';
@@ -38,10 +41,11 @@ import {
 } from '../lib/utils.js';
 import { Loader } from '../components/shared/Loader.jsx';
 import { ErrorState } from '../components/shared/ErrorState.jsx';
+import { EmptyState } from '../components/shared/EmptyState.jsx';
+import { PageHeader } from '../components/shared/PageHeader.jsx';
 import { StatusBadge } from '../components/shared/StatusBadge.jsx';
 import { Badge } from '../components/ui/Badge.jsx';
 import { Button } from '../components/ui/Button.jsx';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card.jsx';
 import { Input } from '../components/ui/Input.jsx';
 import { Label } from '../components/ui/Label.jsx';
 import { Select } from '../components/ui/Select.jsx';
@@ -51,6 +55,12 @@ import { Dialog, DialogContent, DialogFooter } from '../components/ui/Dialog.jsx
 import { Sheet } from '../components/ui/Sheet.jsx';
 
 const STATUSES = ['Open', 'In-Progress', 'Field Visit', 'Resolved'];
+const STATUS_COLUMN_LABELS = {
+  Open: 'Open',
+  'In-Progress': 'In progress',
+  'Field Visit': 'Field visit',
+  Resolved: 'Resolved',
+};
 const TASK_TYPES = [
   'Feeder Line Audit',
   'ONU Configuration',
@@ -59,6 +69,18 @@ const TASK_TYPES = [
   'Router Replacement',
   'Other',
 ];
+
+function defaultTaskTitle(taskType) {
+  if (!taskType || taskType === 'Other') return '';
+  return `${taskType} — site visit`;
+}
+
+function slaLabel(ticket) {
+  if (ticket.status === 'Resolved') return null;
+  if (ticket.sla_state === 'breached') return { text: 'SLA breached', variant: 'danger' };
+  if (ticket.sla_state === 'at_risk') return { text: 'SLA at risk', variant: 'warning' };
+  return { text: `Due ${formatDateTime(ticket.sla_due_at)}`, variant: 'outline' };
+}
 
 function groupByStatus(items) {
   const map = Object.fromEntries(STATUSES.map((s) => [s, []]));
@@ -92,21 +114,31 @@ function SortableCard({ id, children, data }) {
 }
 
 function TicketCard({ ticket, onOpen }) {
-  const unassigned = Number(ticket.open_task_count) > 0;
+  const sla = slaLabel(ticket);
+  const unassigned = Number(ticket.unassigned_task_count) > 0;
   return (
-    <div className="space-y-1 text-sm">
-      <button type="button" className="font-semibold text-blue-700 hover:underline" onClick={() => onOpen(ticket)}>
-        {ticket.ticket_no}
+    <div className="space-y-1.5 text-sm">
+      <button
+        type="button"
+        className="w-full text-left"
+        onClick={() => onOpen(ticket)}
+      >
+        <p className="font-semibold text-slate-900 line-clamp-2 hover:text-blue-700">{ticket.title}</p>
+        <p className="mt-0.5 font-mono text-xs text-slate-500">{ticket.ticket_no}</p>
       </button>
-      <p className="line-clamp-2 text-slate-700">{ticket.title}</p>
+      <p className="truncate text-xs text-slate-500">
+        {ticket.subscriber_name || 'Subscriber'} · {ticket.connection_code}
+      </p>
       <div className="flex flex-wrap gap-1">
         <StatusBadge status={ticket.priority} />
-        {ticket.sla_state === 'breached' ? <Badge variant="danger">SLA breached</Badge> : null}
+        {sla ? <Badge variant={sla.variant}>{sla.text}</Badge> : null}
         {unassigned ? (
           <Badge variant="warning">
             <AlertTriangle className="mr-1 inline h-3 w-3" />
-            {ticket.open_task_count} open tasks
+            Unassigned work
           </Badge>
+        ) : Number(ticket.open_task_count) > 0 ? (
+          <Badge variant="outline">{ticket.open_task_count} open tasks</Badge>
         ) : null}
       </div>
     </div>
@@ -125,15 +157,29 @@ function StatusColumn({ status, children }) {
   );
 }
 
-function KanbanBoard({ items, type, onOpenTicket, onDragEnd, optimistic }) {
+function KanbanBoard({ items, type, onOpenTicket, onDragEnd, optimistic, onAssignTask }) {
   const grouped = useMemo(() => groupByStatus(optimistic ?? items), [optimistic, items]);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const [activeId, setActiveId] = useState(null);
+  const empty = (optimistic ?? items).length === 0;
 
   const handleDragEnd = (event) => {
     setActiveId(null);
     onDragEnd(event, grouped);
   };
+
+  if (empty) {
+    return (
+      <EmptyState
+        title={type === 'ticket' ? 'No tickets yet' : 'No sub-tasks yet'}
+        description={
+          type === 'ticket'
+            ? 'Create a master ticket against a live connection to start dispatch.'
+            : 'Open a ticket and add field sub-tasks, then assign a technician.'
+        }
+      />
+    );
+  }
 
   return (
     <DndContext
@@ -146,7 +192,7 @@ function KanbanBoard({ items, type, onOpenTicket, onDragEnd, optimistic }) {
         {STATUSES.map((status) => (
           <StatusColumn key={status} status={status}>
             <h3 className="mb-2 px-1 text-sm font-semibold text-slate-700">
-              {status}{' '}
+              {STATUS_COLUMN_LABELS[status]}{' '}
               <span className="text-slate-400">({grouped[status].length})</span>
             </h3>
             <SortableContext items={grouped[status].map((t) => String(t.id))} strategy={verticalListSortingStrategy}>
@@ -157,12 +203,21 @@ function KanbanBoard({ items, type, onOpenTicket, onDragEnd, optimistic }) {
                       <TicketCard ticket={item} onOpen={onOpenTicket} />
                     ) : (
                       <div className="space-y-1 text-sm">
-                        <p className="font-medium">{item.title}</p>
-                        <p className="text-xs text-slate-500">{item.ticket_no}</p>
+                        <p className="font-medium text-slate-900">{item.title}</p>
+                        <p className="text-xs text-slate-500">
+                          {item.task_type} · {item.ticket_no}
+                        </p>
                         {!item.technician_id ? (
-                          <Badge variant="warning">Unassigned</Badge>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="warning">Unassigned</Badge>
+                            {onAssignTask ? (
+                              <Button type="button" size="sm" variant="outline" onClick={() => onAssignTask(item)}>
+                                Assign
+                              </Button>
+                            ) : null}
+                          </div>
                         ) : (
-                          <p className="text-xs">{item.technician_name}</p>
+                          <p className="text-xs text-slate-600">{item.technician_name}</p>
                         )}
                       </div>
                     )}
@@ -197,6 +252,15 @@ function TimelineView({ tasks }) {
   const endHour = 20;
   const hours = Array.from({ length: endHour - startHour }, (_, i) => startHour + i);
 
+  if (!tasks.length) {
+    return (
+      <EmptyState
+        title="No scheduled windows"
+        description="Assign a technician with a time window to see work on the timeline."
+      />
+    );
+  }
+
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-200">
       <div
@@ -216,7 +280,6 @@ function TimelineView({ tasks }) {
               className="relative border-b"
               style={{
                 gridColumn: `2 / span ${hours.length}`,
-                gridTemplateColumns: `repeat(${hours.length}, 1fr)`,
                 minHeight: '3rem',
               }}
             >
@@ -249,10 +312,62 @@ function TimelineView({ tasks }) {
   );
 }
 
+function TicketNotes({ ticketId, notes }) {
+  const [text, setText] = useState('');
+  const createNote = useCreateTicketNoteMutation(ticketId);
+
+  const submit = (e) => {
+    e.preventDefault();
+    const body = text.trim();
+    if (!body) return;
+    createNote.mutate(body, {
+      onSuccess: () => {
+        setText('');
+        toast.success('Note added');
+      },
+      onError: (err) => toast.error(getApiError(err).message),
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-semibold text-slate-800">Notes</h3>
+      <ul className="max-h-48 space-y-2 overflow-y-auto">
+        {(notes || []).length === 0 ? (
+          <li className="text-sm text-slate-500">No notes yet — add context for the next person.</li>
+        ) : (
+          (notes || []).map((n) => (
+            <li key={n.id} className="rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2 text-sm">
+              <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2 text-xs text-slate-500">
+                <span className="font-medium text-slate-700">{n.author_name}</span>
+                <span>{formatDateTime(n.created_at)}</span>
+              </div>
+              <p className="whitespace-pre-wrap text-slate-800">{n.body}</p>
+            </li>
+          ))
+        )}
+      </ul>
+      <form className="space-y-2" onSubmit={submit}>
+        <Textarea
+          rows={2}
+          placeholder="Add a note (what you tried, customer callback, site access…)"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <Button type="submit" size="sm" disabled={createNote.isPending || !text.trim()}>
+          Add note
+        </Button>
+      </form>
+    </div>
+  );
+}
+
 export default function Dispatch() {
   useDocumentTitle('Dispatch');
-  const { hasRole } = useAuth();
+  const { hasRole, user } = useAuth();
   const canCreate = hasRole('admin', 'support_lead', 'support_agent');
+  const canLead = hasRole('admin', 'support_lead');
+  const isAgent = user?.role === 'support_agent';
 
   const [view, setView] = useState('tickets');
   const [ticketDrawer, setTicketDrawer] = useState(null);
@@ -261,19 +376,27 @@ export default function Dispatch() {
   const [conflictMsg, setConflictMsg] = useState('');
   const [optimisticTickets, setOptimisticTickets] = useState(null);
   const [optimisticTasks, setOptimisticTasks] = useState(null);
-  const [splitRows, setSplitRows] = useState([{ title: '', task_type: 'Other', description: '' }]);
+  const [splitRows, setSplitRows] = useState([
+    { title: defaultTaskTitle('Fiber Repair'), task_type: 'Fiber Repair', description: '' },
+  ]);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const ticketsQuery = useTicketsQuery({ page: 1, pageSize: 300 }, { poll: true });
   const tasksQuery = useTasksQuery({ page: 1, pageSize: 500 }, { poll: true });
   const ticketDetail = useTicketQuery(ticketDrawer?.id);
+  const connectionsQuery = useConnectionsQuery({ page: 1, pageSize: 200, status: 'Active' });
   const reorderTicket = useTicketReorderMutation();
   const reorderTask = useTaskReorderMutation();
   const createTicket = useCreateTicketMutation();
   const createTasks = useCreateTasksMutation(ticketDrawer?.id);
+  const statusMut = useTicketStatusMutation();
   const assignMut = useTaskAssignMutation();
 
   const tickets = ticketsQuery.data?.items ?? [];
   const tasks = tasksQuery.data?.items ?? [];
+  const activeConnections = (connectionsQuery.data?.items || []).filter(
+    (c) => c.status !== 'Terminated'
+  );
 
   useEffect(() => {
     setOptimisticTickets(null);
@@ -283,15 +406,35 @@ export default function Dispatch() {
     setOptimisticTasks(null);
   }, [tasksQuery.dataUpdatedAt]);
 
+  useEffect(() => {
+    setDetailsOpen(false);
+    setSplitRows([{ title: defaultTaskTitle('Fiber Repair'), task_type: 'Fiber Repair', description: '' }]);
+  }, [ticketDrawer?.id]);
+
   const createForm = useForm({
     resolver: zodResolver(ticketCreateSchema),
-    defaultValues: { connection_id: '', title: '', description: '', priority: 'Medium' },
+    defaultValues: {
+      connection_id: '',
+      title: '',
+      description: '',
+      priority: 'Medium',
+    },
   });
 
   const assignForm = useForm({
     resolver: zodResolver(assignTaskSchema),
     defaultValues: { technician_id: '', window_start: '', window_end: '' },
   });
+
+  const openAssign = (task) => {
+    setConflictMsg('');
+    setAssignTask(task);
+    assignForm.reset({
+      technician_id: task.technician_id || '',
+      window_start: toLocalInputValue(task.window_start),
+      window_end: toLocalInputValue(task.window_end),
+    });
+  };
 
   const winStart = assignForm.watch('window_start');
   const winEnd = assignForm.watch('window_end');
@@ -420,25 +563,35 @@ export default function Dispatch() {
 
   const submitTicket = (values) => {
     createTicket.mutate(values, {
-      onSuccess: () => {
+      onSuccess: (ticket) => {
         toast.success('Ticket created');
         setCreateOpen(false);
-        createForm.reset();
+        createForm.reset({
+          connection_id: '',
+          title: '',
+          description: '',
+          priority: 'Medium',
+        });
+        setTicketDrawer(ticket);
       },
       onError: (err) => toast.error(getApiError(err).message),
     });
   };
 
   const submitTasks = () => {
-    const parsed = splitRows.map((r) => taskCreateSchema.parse(r));
-    createTasks.mutate(parsed.length === 1 ? parsed[0] : parsed, {
-      onSuccess: () => {
-        toast.success('Sub-tasks added');
-        setSplitRows([{ title: '', task_type: 'Other', description: '' }]);
-        ticketDetail.refetch();
-      },
-      onError: (err) => toast.error(getApiError(err).message),
-    });
+    try {
+      const parsed = splitRows.map((r) => taskCreateSchema.parse(r));
+      createTasks.mutate(parsed.length === 1 ? parsed[0] : parsed, {
+        onSuccess: () => {
+          toast.success('Sub-tasks added');
+          setSplitRows([{ title: defaultTaskTitle('Fiber Repair'), task_type: 'Fiber Repair', description: '' }]);
+          ticketDetail.refetch();
+        },
+        onError: (err) => toast.error(getApiError(err).message),
+      });
+    } catch (err) {
+      toast.error(err.errors?.[0]?.message || 'Check sub-task fields');
+    }
   };
 
   const submitAssign = (values) => {
@@ -455,6 +608,7 @@ export default function Dispatch() {
           toast.success('Assignment saved');
           setAssignTask(null);
           ticketDetail.refetch();
+          tasksQuery.refetch();
         },
         onError: (err) => {
           const e = getApiError(err);
@@ -477,22 +631,31 @@ export default function Dispatch() {
     );
   };
 
+  const detail = ticketDetail.data;
+  const sla = detail ? slaLabel(detail) : null;
+  const subtitle = isAgent
+    ? 'Log clear master tickets. Leads assign field work from here.'
+    : 'Triage tickets, split field work, and assign technicians.';
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-slate-900">Dispatch board</h1>
-        {canCreate ? (
-          <Button type="button" size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4" />
-            Create ticket
-          </Button>
-        ) : null}
-      </div>
+      <PageHeader
+        title="Dispatch"
+        subtitle={subtitle}
+        actions={
+          canCreate ? (
+            <Button type="button" size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" />
+              New ticket
+            </Button>
+          ) : null
+        }
+      />
 
       <Tabs defaultValue="tickets" value={view} onValueChange={setView}>
         <TabsList>
           <TabsTrigger value="tickets">Tickets</TabsTrigger>
-          <TabsTrigger value="tasks">Tasks</TabsTrigger>
+          <TabsTrigger value="tasks">Field tasks</TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
         </TabsList>
         <TabsContent value="tickets">
@@ -511,6 +674,7 @@ export default function Dispatch() {
             optimistic={optimisticTasks}
             onOpenTicket={() => {}}
             onDragEnd={onTaskDragEnd}
+            onAssignTask={canLead ? openAssign : undefined}
           />
         </TabsContent>
         <TabsContent value="timeline">
@@ -519,19 +683,36 @@ export default function Dispatch() {
       </Tabs>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent title="Create master ticket">
+        <DialogContent title="New support ticket">
           <form className="space-y-3" onSubmit={createForm.handleSubmit(submitTicket)}>
             <div>
-              <Label>Connection ID</Label>
-              <Input type="number" {...createForm.register('connection_id')} />
+              <Label>Connection</Label>
+              <Select {...createForm.register('connection_id')}>
+                <option value="">Select a connection…</option>
+                {activeConnections.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.connection_code} — {c.subscriber_name} ({c.status})
+                  </option>
+                ))}
+              </Select>
+              {createForm.formState.errors.connection_id ? (
+                <p className="text-xs text-red-600">Pick a connection</p>
+              ) : null}
             </div>
             <div>
               <Label>Title</Label>
-              <Input {...createForm.register('title')} />
+              <Input
+                placeholder="e.g. No link light on ONU after power cut"
+                {...createForm.register('title')}
+              />
             </div>
             <div>
-              <Label>Description</Label>
-              <Textarea {...createForm.register('description')} />
+              <Label>What happened?</Label>
+              <Textarea
+                rows={3}
+                placeholder="Symptoms, when it started, anything the customer already tried…"
+                {...createForm.register('description')}
+              />
             </div>
             <div>
               <Label>Priority</Label>
@@ -548,7 +729,7 @@ export default function Dispatch() {
                 Cancel
               </Button>
               <Button type="submit" disabled={createTicket.isPending}>
-                Create
+                Create ticket
               </Button>
             </DialogFooter>
           </form>
@@ -559,96 +740,213 @@ export default function Dispatch() {
         open={Boolean(ticketDrawer)}
         onOpenChange={(o) => !o && setTicketDrawer(null)}
         side="right"
-        title={ticketDrawer?.ticket_no || 'Ticket'}
+        title={detail?.ticket_no || ticketDrawer?.ticket_no || 'Ticket'}
       >
         {ticketDetail.isLoading ? (
           <Loader className="py-6" />
-        ) : ticketDetail.data ? (
-          <div className="space-y-4">
-            <div>
-              <h2 className="font-semibold">{ticketDetail.data.title}</h2>
-              <p className="text-sm text-slate-600">{ticketDetail.data.description}</p>
-              <StatusBadge status={ticketDetail.data.status} />
+        ) : detail ? (
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <h2 className="text-lg font-semibold text-slate-900">{detail.title}</h2>
+              <div className="flex flex-wrap gap-1.5">
+                <StatusBadge status={detail.status} />
+                <StatusBadge status={detail.priority} />
+                {sla ? <Badge variant={sla.variant}>{sla.text}</Badge> : null}
+              </div>
+              <p className="text-sm text-slate-600">
+                {detail.subscriber_name} · {detail.connection_code}
+                {detail.plan_name ? ` · ${detail.plan_name}` : ''}
+                {detail.pop_code ? ` · POP ${detail.pop_code}` : ''}
+              </p>
             </div>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Sub-tasks</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {(ticketDetail.data.tasks || []).map((task) => (
-                  <div key={task.id} className="rounded border border-slate-100 p-2 text-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-medium">{task.title}</span>
-                      <StatusBadge status={task.status} />
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</p>
+              <div className="flex flex-col gap-1.5">
+                {(detail.status_moves || []).map((move) => {
+                  if (move.current) {
+                    return (
+                      <div
+                        key={move.to}
+                        className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-900"
+                      >
+                        Current: {STATUS_COLUMN_LABELS[move.to] || move.to}
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={move.to}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={move.allowed ? 'outline' : 'ghost'}
+                        className="w-full justify-start"
+                        disabled={!move.allowed || statusMut.isPending}
+                        title={move.reason || undefined}
+                        onClick={() => {
+                          statusMut.mutate(
+                            { id: detail.id, status: move.to },
+                            {
+                              onSuccess: () => {
+                                toast.success(`Status → ${move.to}`);
+                                ticketDetail.refetch();
+                                ticketsQuery.refetch();
+                              },
+                              onError: (err) => toast.error(getApiError(err).message),
+                            }
+                          );
+                        }}
+                      >
+                        {move.label}
+                      </Button>
+                      {!move.allowed && move.reason ? (
+                        <p className="mt-0.5 px-1 text-xs text-slate-500">{move.reason}</p>
+                      ) : null}
                     </div>
-                    {!task.technician_id ? <Badge variant="warning">Unassigned</Badge> : null}
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <button
+                type="button"
+                className="flex items-center gap-1 text-sm font-medium text-slate-700"
+                onClick={() => setDetailsOpen((v) => !v)}
+              >
+                {detailsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                Details
+              </button>
+              {detailsOpen ? (
+                <p className="mt-2 whitespace-pre-wrap rounded-md border border-slate-100 bg-slate-50 p-3 text-sm text-slate-700">
+                  {detail.description}
+                </p>
+              ) : null}
+            </div>
+
+            <TicketNotes ticketId={detail.id} notes={detail.notes} />
+
+            <div className="space-y-3 border-t border-slate-100 pt-4">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-slate-800">Sub-tasks</h3>
+                {Number(detail.unassigned_task_count) > 0 ? (
+                  <Badge variant="warning">
+                    <AlertTriangle className="mr-1 inline h-3 w-3" />
+                    {detail.unassigned_task_count} unassigned
+                  </Badge>
+                ) : null}
+              </div>
+
+              {(detail.tasks || []).length === 0 ? (
+                <EmptyState
+                  title="No field work yet"
+                  description={
+                    canLead
+                      ? 'Add a sub-task so a technician can be assigned.'
+                      : 'A lead will split this ticket into field tasks.'
+                  }
+                />
+              ) : (
+                <ul className="space-y-2">
+                  {(detail.tasks || []).map((task) => (
+                    <li key={task.id} className="rounded-md border border-slate-100 p-2.5 text-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="font-medium text-slate-900">{task.title}</p>
+                          <p className="text-xs text-slate-500">{task.task_type}</p>
+                        </div>
+                        <StatusBadge status={task.status} />
+                      </div>
+                      {!task.technician_id ? (
+                        <Badge variant="warning" className="mt-2">
+                          Unassigned
+                        </Badge>
+                      ) : (
+                        <p className="mt-1 text-xs text-slate-600">
+                          {task.technician_name}
+                          {task.window_start
+                            ? ` · ${formatDateTime(task.window_start)} – ${formatDateTime(task.window_end)}`
+                            : ''}
+                        </p>
+                      )}
+                      {canLead ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          onClick={() => openAssign(task)}
+                        >
+                          {task.technician_id ? 'Reschedule' : 'Assign technician'}
+                        </Button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {canLead ? (
+                <div className="space-y-2 rounded-md border border-dashed border-slate-200 p-3">
+                  <p className="text-sm font-medium text-slate-800">Add sub-tasks</p>
+                  {splitRows.map((row, idx) => (
+                    <div key={idx} className="grid gap-2">
+                      <Select
+                        value={row.task_type}
+                        onChange={(e) => {
+                          const task_type = e.target.value;
+                          const next = [...splitRows];
+                          next[idx] = {
+                            ...next[idx],
+                            task_type,
+                            title: next[idx].title?.startsWith(next[idx].task_type) || !next[idx].title
+                              ? defaultTaskTitle(task_type)
+                              : next[idx].title,
+                          };
+                          setSplitRows(next);
+                        }}
+                      >
+                        {TASK_TYPES.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </Select>
+                      <Input
+                        placeholder="Task title"
+                        value={row.title}
+                        onChange={(e) => {
+                          const next = [...splitRows];
+                          next[idx].title = e.target.value;
+                          setSplitRows(next);
+                        }}
+                      />
+                    </div>
+                  ))}
+                  <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="mt-2"
-                      onClick={() => {
-                        setAssignTask(task);
-                        assignForm.reset({
-                          technician_id: task.technician_id || '',
-                          window_start: toLocalInputValue(task.window_start),
-                          window_end: toLocalInputValue(task.window_end),
-                        });
-                      }}
+                      onClick={() =>
+                        setSplitRows([
+                          ...splitRows,
+                          {
+                            title: defaultTaskTitle('Other'),
+                            task_type: 'Other',
+                            description: '',
+                          },
+                        ])
+                      }
                     >
-                      Assign / schedule
+                      Add another
+                    </Button>
+                    <Button type="button" size="sm" onClick={submitTasks} disabled={createTasks.isPending}>
+                      Save sub-tasks
                     </Button>
                   </div>
-                ))}
-                {hasRole('admin', 'support_lead') ? (
-                  <div className="border-t pt-3">
-                    <p className="mb-2 text-sm font-medium">Split into sub-tasks</p>
-                    {splitRows.map((row, idx) => (
-                      <div key={idx} className="mb-2 grid gap-2">
-                        <Input
-                          placeholder="Title"
-                          value={row.title}
-                          onChange={(e) => {
-                            const next = [...splitRows];
-                            next[idx].title = e.target.value;
-                            setSplitRows(next);
-                          }}
-                        />
-                        <Select
-                          value={row.task_type}
-                          onChange={(e) => {
-                            const next = [...splitRows];
-                            next[idx].task_type = e.target.value;
-                            setSplitRows(next);
-                          }}
-                        >
-                          {TASK_TYPES.map((t) => (
-                            <option key={t} value={t}>
-                              {t}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                    ))}
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          setSplitRows([...splitRows, { title: '', task_type: 'Other', description: '' }])
-                        }
-                      >
-                        Add row
-                      </Button>
-                      <Button type="button" size="sm" onClick={submitTasks} disabled={createTasks.isPending}>
-                        Save tasks
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
+                </div>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </Sheet>
@@ -656,18 +954,12 @@ export default function Dispatch() {
       <Dialog open={Boolean(assignTask)} onOpenChange={(o) => !o && setAssignTask(null)}>
         <DialogContent title="Assign technician">
           <form className="space-y-3" onSubmit={assignForm.handleSubmit(submitAssign)}>
-            <div>
-              <Label>Technician</Label>
-              <Select {...assignForm.register('technician_id')}>
-                <option value="">Unassigned</option>
-                {(available.data || []).map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </Select>
-              <p className="mt-1 text-xs text-slate-500">Filtered by availability for the selected window</p>
-            </div>
+            {assignTask ? (
+              <p className="text-sm text-slate-600">
+                <span className="font-medium text-slate-900">{assignTask.title}</span>
+                <span className="text-slate-500"> · {assignTask.task_type}</span>
+              </p>
+            ) : null}
             <div>
               <Label>Window start</Label>
               <Input type="datetime-local" {...assignForm.register('window_start')} />
@@ -679,6 +971,24 @@ export default function Dispatch() {
                 <p className="text-xs text-red-600">{assignForm.formState.errors.window_end.message}</p>
               ) : null}
             </div>
+            <div>
+              <Label>Technician</Label>
+              <Select {...assignForm.register('technician_id')}>
+                <option value="">Select…</option>
+                {(available.data || []).map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </Select>
+              <p className="mt-1 text-xs text-slate-500">
+                {winStart && winEnd
+                  ? available.isLoading
+                    ? 'Checking availability…'
+                    : `${(available.data || []).length} available for this window`
+                  : 'Pick a time window to see who is free'}
+              </p>
+            </div>
             {conflictMsg ? (
               <div className="rounded border border-red-200 bg-red-50 p-2 text-sm text-red-800">{conflictMsg}</div>
             ) : null}
@@ -687,7 +997,7 @@ export default function Dispatch() {
                 Cancel
               </Button>
               <Button type="submit" disabled={assignMut.isPending}>
-                Save assignment
+                Save
               </Button>
             </DialogFooter>
           </form>

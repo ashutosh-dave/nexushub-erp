@@ -73,6 +73,7 @@ export default function AuditLog() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold text-slate-900">Audit log</h1>
+      <p className="mt-0.5 text-sm text-slate-600">Who changed what — status moves, assignments, and plan changes.</p>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div>

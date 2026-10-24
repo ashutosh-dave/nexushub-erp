@@ -194,16 +194,25 @@ export default function Login() {
           </Tabs>
 
           <div className="mt-5 space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-            <p className="font-medium text-slate-800">Demo logins (password for all: Password@123)</p>
-            <ul className="space-y-1 font-mono">
-              <li>admin@nexushub.test — admin</li>
-              <li>lead@nexushub.test — support lead</li>
-              <li>agent@nexushub.test — support agent</li>
-              <li>tech1@nexushub.test — technician</li>
-              <li>buyer@nexushub.test — buyer (B2C)</li>
-              <li>buyer.b2b@nexushub.test — buyer (B2B)</li>
+            <p className="font-medium text-slate-800">Try a role (password: Password@123)</p>
+            <ul className="space-y-1">
+              <li>
+                <span className="font-mono">admin@nexushub.test</span> — ops dashboard + dispatch
+              </li>
+              <li>
+                <span className="font-mono">lead@nexushub.test</span> — assign field work
+              </li>
+              <li>
+                <span className="font-mono">agent@nexushub.test</span> — log tickets
+              </li>
+              <li>
+                <span className="font-mono">tech1@nexushub.test</span> — my field tasks
+              </li>
+              <li>
+                <span className="font-mono">buyer@nexushub.test</span> — browse &amp; change plans
+              </li>
             </ul>
-            <p className="text-slate-500">Or use Sign up to create your own buyer demo account.</p>
+            <p className="text-slate-500">Or Sign up for your own buyer account.</p>
           </div>
         </CardContent>
       </Card>

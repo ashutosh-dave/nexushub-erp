@@ -112,6 +112,7 @@ export default function Subscribers() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-slate-900">Subscribers</h1>
+        <p className="mt-0.5 text-sm text-slate-600">Find accounts and open a connection when you need context for a ticket.</p>
       </div>
 
       <div className="flex flex-wrap gap-3">

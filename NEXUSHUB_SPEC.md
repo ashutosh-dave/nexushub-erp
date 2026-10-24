@@ -112,6 +112,7 @@ All tables: `id BIGINT UNSIGNED AUTO_INCREMENT PK`, `created_at`, `updated_at` (
 **technician_shifts**: `technician_id` FK users, `shift_date` DATE, `start_time` TIME, `end_time` TIME. Shifts do not cross midnight in this scope (document this).
 **tickets** (master complaints): `ticket_no` (unique, e.g. `TK-000045`), `connection_id` FK, `title`, `description`, `priority` ENUM(Low, Medium, High, Critical), `status` ENUM(Open, In-Progress, Field Visit, Resolved), `rank_index` INT, `created_by` FK, `sla_due_at` DATETIME, `resolved_at` NULL.
 **ticket_tasks** (sub-tasks): `ticket_id` FK, `title`, `task_type` ENUM(Feeder Line Audit, ONU Configuration, Splicing, Fiber Repair, Router Replacement, Other), `description`, `status` ENUM(Open, In-Progress, Field Visit, Resolved), `rank_index` INT, `technician_id` NULL FK, `window_start` DATETIME NULL, `window_end` DATETIME NULL, `resolved_at` NULL. Constraint: `window_end > window_start` (check in service; add CHECK if MySQL 8.0.16+).
+**ticket_notes** (timeline): `ticket_id` FK, `author_id` FK users, `body` TEXT, `created_at`. Append-only operational notes shown in the ticket drawer.
 **audit_logs** (append only, never updated or deleted): `entity_type` ENUM(connection, plan_change, ticket, ticket_task, subscriber), `entity_id`, `action` (e.g. `STATUS_CHANGED`, `PLAN_CHANGED`, `TECH_ASSIGNED`, `TECH_REASSIGNED`, `TECH_UNASSIGNED`, `CONNECTION_CREATED`, `IP_ALLOCATED`, `TASK_RESCHEDULED`, `RANK_CHANGED`), `old_value` JSON NULL, `new_value` JSON NULL, `actor_id` FK users, `created_at`. Index on `(entity_type, entity_id)` and `created_at`.
 `schema.sql` must be organised in this order with section comments: database creation, reference tables, core tables, workflow tables, audit, indexes. It must run cleanly on a fresh database.
 ---
@@ -202,6 +203,7 @@ Base path: `/api`. JSON only. Auth via `Authorization: Bearer <jwt>` on everythi
 - `PATCH /tickets/:id/status` body `{ status }`
 - `PATCH /tickets/reorder` body as in 5.5
 - `POST /tickets/:id/tasks` (support_lead, admin) create sub-task(s); accepts a single object or an array
+- `GET /tickets/:id/notes` / `POST /tickets/:id/notes` body `{ body }` (support + admin; technician if assigned to a task on the ticket)
 - `GET /tasks` (filters: `status`, `technicianId`, `ticketId`, date range; used by board and technician view)
 - `PATCH /tasks/:id` (title, type, description)
 - `PATCH /tasks/:id/assign` body `{ technician_id | null, window_start, window_end }` (conflict validation, 5.4)
@@ -332,3 +334,4 @@ If time runs short, cut in this order: technician timeline view → dark mode/po
 Append one line per decision made where this file was silent.
 - Rank ordering: per-status global contiguous `rank_index` starting at 0 for both tickets and ticket_tasks; RANK_CHANGED audit only on status change, not pure in-column reorder.
 - Language: plain JavaScript (ES modules) for both apps; no TypeScript.
+- Ticket notes: additive `ticket_notes` table (ticket_id, author_id, body, created_at) with `GET/POST /tickets/:id/notes`; support roles + admin always; technicians may note only when assigned to a sub-task on that ticket; audited as ticket `NOTE_ADDED`. Apply on hosted DB via `npm run db:migrate:up`.

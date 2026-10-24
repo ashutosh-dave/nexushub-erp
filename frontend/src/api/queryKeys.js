@@ -12,6 +12,7 @@ export const queryKeys = {
     detail: (id) => ['subscribers', 'detail', id],
   },
   connections: {
+    list: (params) => ['connections', 'list', params],
     history: (id) => ['connections', 'history', id],
   },
   pops: {

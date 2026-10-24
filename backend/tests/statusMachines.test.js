@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   canTransitionConnection,
   canTransitionWorkflow,
+  listWorkflowMoves,
+  workflowTransitionBlockReason,
 } from '../src/utils/statusMachines.js';
 
 describe('canTransitionWorkflow', () => {
@@ -27,5 +29,23 @@ describe('canTransitionConnection', () => {
     expect(canTransitionConnection('Pending', 'Active')).toBe(true);
     expect(canTransitionConnection('Active', 'Suspended')).toBe(true);
     expect(canTransitionConnection('Terminated', 'Active')).toBe(false);
+  });
+});
+
+describe('listWorkflowMoves', () => {
+  it('labels forward step and blocks skip with reason', () => {
+    const moves = listWorkflowMoves('Open', { allowBackward: false, unresolvedTaskCount: 0 });
+    const start = moves.find((m) => m.to === 'In-Progress');
+    const skip = moves.find((m) => m.to === 'Resolved');
+    expect(start.allowed).toBe(true);
+    expect(start.label).toBe('Start working');
+    expect(skip.allowed).toBe(false);
+    expect(skip.reason).toMatch(/one step/i);
+  });
+
+  it('blocks resolve when sub-tasks open', () => {
+    expect(
+      workflowTransitionBlockReason('Field Visit', 'Resolved', { unresolvedTaskCount: 2 })
+    ).toMatch(/2 open sub-task/);
   });
 });

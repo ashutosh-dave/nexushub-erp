@@ -17,7 +17,7 @@ export function Sheet({ open, onOpenChange, side = 'left', children, title }) {
 
   const sideClass =
     side === 'right'
-      ? 'right-0 left-auto border-l w-[min(100%,24rem)]'
+      ? 'right-0 left-auto border-l w-[min(100%,32rem)]'
       : side === 'left'
         ? 'left-0 w-[min(100%,20rem)] border-r'
         : 'bottom-0 left-0 right-0 border-t max-h-[85vh]';

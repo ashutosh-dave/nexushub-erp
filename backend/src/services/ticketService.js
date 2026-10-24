@@ -1,7 +1,13 @@
 import { getPool, withTransaction } from '../config/db.js';
 import { ApiError } from '../utils/ApiError.js';
 import { auditLog } from '../utils/audit.js';
-import { canTransitionWorkflow, SLA_HOURS, WORKFLOW_STATUSES } from '../utils/statusMachines.js';
+import {
+  canTransitionWorkflow,
+  listWorkflowMoves,
+  SLA_HOURS,
+  WORKFLOW_STATUSES,
+} from '../utils/statusMachines.js';
+import { listTicketNotes } from './ticketNoteService.js';
 import { parsePagination } from '../utils/pagination.js';
 import {
   moveItemStatusRank,
@@ -48,9 +54,13 @@ async function countOpenRank(conn) {
 
 async function fetchTicketById(conn, id) {
   const [rows] = await conn.execute(
-    `SELECT t.*, c.connection_code, c.subscriber_id
+    `SELECT t.*, c.connection_code, c.subscriber_id, c.status AS connection_status,
+            s.name AS subscriber_name, p.name AS plan_name, pop.code AS pop_code
      FROM tickets t
      JOIN connections c ON c.id = t.connection_id
+     JOIN subscribers s ON s.id = c.subscriber_id
+     JOIN plans p ON p.id = c.plan_id
+     JOIN pops pop ON pop.id = c.pop_id
      WHERE t.id = ?`,
     [id]
   );
@@ -106,11 +116,13 @@ export async function listTickets(query) {
   );
 
   const [rows] = await getPool().query(
-    `SELECT t.*, c.connection_code,
+    `SELECT t.*, c.connection_code, s.name AS subscriber_name,
       (SELECT COUNT(*) FROM ticket_tasks tt WHERE tt.ticket_id = t.id) AS task_count,
-      (SELECT COUNT(*) FROM ticket_tasks tt WHERE tt.ticket_id = t.id AND tt.status != 'Resolved') AS open_task_count
+      (SELECT COUNT(*) FROM ticket_tasks tt WHERE tt.ticket_id = t.id AND tt.status != 'Resolved') AS open_task_count,
+      (SELECT COUNT(*) FROM ticket_tasks tt WHERE tt.ticket_id = t.id AND tt.technician_id IS NULL AND tt.status != 'Resolved') AS unassigned_task_count
      FROM tickets t
      JOIN connections c ON c.id = t.connection_id
+     JOIN subscribers s ON s.id = c.subscriber_id
      WHERE ${where}
      ORDER BY t.status, t.rank_index ASC, t.id ASC
      LIMIT :limit OFFSET :offset`,
@@ -168,15 +180,34 @@ export async function createTicket(payload, actor) {
   });
 }
 
-export async function getTicket(id) {
+export async function getTicket(id, actor = null) {
   const pool = getPool();
   const ticket = await fetchTicketById(pool, id);
   if (!ticket) throw new ApiError(404, 'NOT_FOUND', 'Ticket not found');
   const tasks = await fetchTasksForTicket(pool, id);
   const openCount = tasks.filter((t) => t.status !== 'Resolved').length;
+  const unassignedCount = tasks.filter((t) => !t.technician_id && t.status !== 'Resolved').length;
+  const allowBackward = actor ? ['admin', 'support_lead'].includes(actor.role) : true;
+  const status_moves = listWorkflowMoves(ticket.status, {
+    allowBackward,
+    unresolvedTaskCount: openCount,
+  });
+
+  let notes = [];
+  if (actor) {
+    try {
+      notes = await listTicketNotes(id, actor);
+    } catch {
+      notes = [];
+    }
+  }
+
   return mapTicketRow(ticket, {
     tasks,
+    notes,
     all_tasks_resolved: openCount === 0,
+    unassigned_task_count: unassignedCount,
+    status_moves,
   });
 }
 

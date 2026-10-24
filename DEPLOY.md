@@ -22,8 +22,10 @@ gh repo create nexushub-erp --public --source=. --remote=origin --push
 ```bash
 cd backend
 # set DB_* and DB_SSL=true in .env
-npm run db:migrate
+npm run db:migrate      # full schema (dev / fresh DB only — drops tables)
 npm run db:seed
+# Additive patches on hosted DB (e.g. ticket_notes) without wipe:
+npm run db:migrate:up
 ```
 
 ## 3. Render (API)

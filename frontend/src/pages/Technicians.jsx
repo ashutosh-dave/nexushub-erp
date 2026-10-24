@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Plus, Trash2 } from 'lucide-react';
 import { useAuth } from '../lib/auth.jsx';
 import { useTasksQuery, useTaskStatusMutation } from '../api/tasks.js';
+import { useCreateTicketNoteMutation } from '../api/tickets.js';
 import {
   useCreateShiftMutation,
   useDeleteShiftMutation,
@@ -21,6 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card.
 import { Dialog, DialogContent, DialogFooter } from '../components/ui/Dialog.jsx';
 import { Input } from '../components/ui/Input.jsx';
 import { Label } from '../components/ui/Label.jsx';
+import { Textarea } from '../components/ui/Textarea.jsx';
 
 const NEXT_STATUS = {
   Open: 'In-Progress',
@@ -115,9 +117,9 @@ function AdminTechniciansView() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Technicians</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Field roster</h1>
         <p className="text-sm text-slate-600">
-          Field roster, current load, and shifts for the next 7 days. Assign work from Dispatch.
+          Assign work to techs from Dispatch. Manage shifts and load for the next 7 days.
         </p>
       </div>
 
@@ -294,6 +296,55 @@ function AdminTechniciansView() {
   );
 }
 
+function TechTaskNote({ ticketId }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const createNote = useCreateTicketNoteMutation(ticketId);
+
+  if (!ticketId) return null;
+
+  const submit = (e) => {
+    e.preventDefault();
+    const body = text.trim();
+    if (!body) return;
+    createNote.mutate(body, {
+      onSuccess: () => {
+        toast.success('Note added to ticket');
+        setText('');
+        setOpen(false);
+      },
+      onError: (err) => toast.error(getApiError(err).message),
+    });
+  };
+
+  if (!open) {
+    return (
+      <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)}>
+        Add note
+      </Button>
+    );
+  }
+
+  return (
+    <form className="mt-2 w-full space-y-2" onSubmit={submit}>
+      <Textarea
+        rows={2}
+        placeholder="Site access, findings, parts needed…"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" disabled={createNote.isPending || !text.trim()}>
+          Save note
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 function TechnicianSelfView() {
   const { user } = useAuth();
   const techId = user?.id;
@@ -332,7 +383,12 @@ function TechnicianSelfView() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-900">My tasks &amp; shifts</h1>
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">Your field tasks</h1>
+        <p className="text-sm text-slate-600">
+          Advance status as you work. Add a short note when support needs context.
+        </p>
+      </div>
 
       <Card>
         <CardHeader>
@@ -340,35 +396,41 @@ function TechnicianSelfView() {
         </CardHeader>
         <CardContent>
           {myTasks.length === 0 ? (
-            <EmptyState title="No open tasks" />
+            <EmptyState
+              title="No open tasks"
+              description="When a lead assigns you work, it will show up here."
+            />
           ) : (
             <ul className="divide-y divide-slate-100">
               {myTasks.map((task) => (
-                <li key={task.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                  <div>
-                    <p className="font-medium">{task.title}</p>
-                    <p className="text-sm text-slate-500">
-                      {task.ticket_no} · {task.task_type}
-                    </p>
-                    {task.window_start ? (
-                      <p className="text-xs text-slate-500">
-                        {formatDateTime(task.window_start)} – {formatDateTime(task.window_end)}
+                <li key={task.id} className="py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium">{task.title}</p>
+                      <p className="text-sm text-slate-500">
+                        {task.ticket_no} · {task.task_type}
                       </p>
-                    ) : null}
+                      {task.window_start ? (
+                        <p className="text-xs text-slate-500">
+                          {formatDateTime(task.window_start)} – {formatDateTime(task.window_end)}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={task.status} />
+                      {NEXT_STATUS[task.status] ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={statusMut.isPending}
+                          onClick={() => advanceStatus(task)}
+                        >
+                          → {NEXT_STATUS[task.status]}
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={task.status} />
-                    {NEXT_STATUS[task.status] ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={statusMut.isPending}
-                        onClick={() => advanceStatus(task)}
-                      >
-                        → {NEXT_STATUS[task.status]}
-                      </Button>
-                    ) : null}
-                  </div>
+                  <TechTaskNote ticketId={task.ticket_id} />
                 </li>
               ))}
             </ul>

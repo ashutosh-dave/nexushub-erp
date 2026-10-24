@@ -41,7 +41,7 @@ export const create = asyncHandler(async (req, res) => {
 });
 
 export const getById = asyncHandler(async (req, res) => {
-  const data = await ticketService.getTicket(Number(req.params.id));
+  const data = await ticketService.getTicket(Number(req.params.id), req.user);
   res.json({ data });
 });
 
