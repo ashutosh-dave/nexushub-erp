@@ -184,11 +184,15 @@ Password for all: **`Password@123`**
 
 | Service | URL |
 |---------|-----|
-| Frontend | _pending deploy — set after Vercel_ |
-| Backend | _pending deploy — set after Render_ |
+| Frontend | _set after Vercel deploy_ |
+| Backend | _set after Render deploy_ |
 | Health | `{BACKEND}/api/health` |
 
+Local verification (this workspace): API on `http://localhost:5000`, MySQL 8.4 local, login + analytics + marketplace proration + overlap 409 exercised.
+
 ### Deployment notes
+
+Follow [`DEPLOY.md`](DEPLOY.md) for GitHub → hosted MySQL → Render → Vercel.
 
 1. Provision MySQL (Aiven or Railway). Enable SSL if required (`DB_SSL=true`).
 2. From a machine with DB access: set `backend/.env`, run `npm run db:migrate` then `npm run db:seed`.

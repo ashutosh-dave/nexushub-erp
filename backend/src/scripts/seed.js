@@ -99,7 +99,8 @@ async function seed() {
       const planPool = sub.type === 'B2B' ? b2bPlans : b2cPlans;
       const plan = planPool[i % planPool.length];
       const pop = popRows[i % popRows.length];
-      const status = statuses[i % statuses.length];
+      // Ensure seeded buyer subscribers (first B2C i=0, first B2B i=2) have Active connections
+      const status = i === 0 || i === 2 ? 'Active' : statuses[i % statuses.length];
       const withIp = i < 12 || status === 'Active';
       const staticIp = withIp && status !== 'Terminated' ? `10.20.${Math.floor(ipCounter / 250)}.${(ipCounter % 250) + 1}` : null;
       if (staticIp) ipCounter += 1;
