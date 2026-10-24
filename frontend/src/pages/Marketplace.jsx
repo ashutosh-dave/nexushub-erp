@@ -7,6 +7,7 @@ import {
   useMyConnectionsQuery,
   useProrationPreviewQuery,
 } from '../api/marketplace.js';
+import { useAuth } from '../lib/auth.jsx';
 import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 import { formatCurrency, getApiError } from '../lib/utils.js';
 import { Loader } from '../components/shared/Loader.jsx';
@@ -20,6 +21,8 @@ import { DataTable } from '../components/shared/DataTable.jsx';
 
 export default function Marketplace() {
   useDocumentTitle('Marketplace');
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [segment, setSegment] = useState('');
   const [minSpeed, setMinSpeed] = useState('');
   const [selectedConn, setSelectedConn] = useState(null);
@@ -91,12 +94,19 @@ export default function Marketplace() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-900">Marketplace</h1>
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">Marketplace</h1>
+        {isAdmin ? (
+          <p className="mt-1 text-sm text-slate-500">
+            Admin view: browse packages and Active connections. Buyers only see their own.
+          </p>
+        ) : null}
+      </div>
 
       {(connections.data || []).length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>Your connection</CardTitle>
+            <CardTitle>{isAdmin ? 'Active connections' : 'Your connection'}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-3">
             <Select
@@ -117,7 +127,11 @@ export default function Marketplace() {
           </CardContent>
         </Card>
       ) : (
-        <p className="text-sm text-slate-500">No connections linked to your account.</p>
+        <p className="text-sm text-slate-500">
+          {isAdmin
+            ? 'No Active connections to browse.'
+            : 'No connections linked to your account.'}
+        </p>
       )}
 
       <div className="flex flex-wrap gap-3">

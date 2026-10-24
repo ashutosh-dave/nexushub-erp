@@ -33,19 +33,32 @@ export async function listPackages(query, actor) {
   return rows;
 }
 
-export async function myConnections(buyer) {
-  if (!buyer.subscriber_id) {
-    throw new ApiError(422, 'NO_SUBSCRIBER', 'Buyer account is not linked to a subscriber');
-  }
-  const [rows] = await getPool().execute(
-    `SELECT c.*, p.name AS plan_name, p.speed_mbps, p.monthly_price, p.segment,
+export async function myConnections(actor) {
+  const select = `SELECT c.*, p.name AS plan_name, p.speed_mbps, p.monthly_price, p.segment,
             pop.code AS pop_code, pop.name AS pop_name
      FROM connections c
      JOIN plans p ON p.id = c.plan_id
-     JOIN pops pop ON pop.id = c.pop_id
+     JOIN pops pop ON pop.id = c.pop_id`;
+
+  // Admin read: browse Active connections (change-plan still allowed per SPEC)
+  if (actor.role === 'admin') {
+    const [rows] = await getPool().execute(
+      `${select}
+       WHERE c.status = 'Active'
+       ORDER BY c.created_at DESC
+       LIMIT 50`
+    );
+    return rows;
+  }
+
+  if (!actor.subscriber_id) {
+    throw new ApiError(422, 'NO_SUBSCRIBER', 'Buyer account is not linked to a subscriber');
+  }
+  const [rows] = await getPool().execute(
+    `${select}
      WHERE c.subscriber_id = ?
      ORDER BY c.created_at DESC`,
-    [buyer.subscriber_id]
+    [actor.subscriber_id]
   );
   return rows;
 }

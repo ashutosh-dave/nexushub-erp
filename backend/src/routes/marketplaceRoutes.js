@@ -7,7 +7,8 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/packages', authorize('admin', 'buyer'), marketplaceController.packages);
-router.get('/my-connections', authorize('buyer'), marketplaceController.myConnections);
+// Admin: read-only browse of Active connections; buyer: own connections only
+router.get('/my-connections', authorize('admin', 'buyer'), marketplaceController.myConnections);
 router.get('/proration-preview', authorize('admin', 'buyer'), marketplaceController.prorationPreview);
 router.post(
   '/connections/:id/change-plan',

@@ -85,9 +85,18 @@ export default function Login() {
               {loginMutation.isPending ? 'Signing in…' : 'Sign in'}
             </Button>
           </form>
-          <p className="mt-4 text-center text-xs text-slate-500">
-            Demo: admin@nexushub.test / Password@123
-          </p>
+          <div className="mt-5 space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+            <p className="font-medium text-slate-800">Demo logins (password for all: Password@123)</p>
+            <ul className="space-y-1 font-mono">
+              <li>admin@nexushub.test — admin</li>
+              <li>lead@nexushub.test — support lead</li>
+              <li>agent@nexushub.test — support agent</li>
+              <li>tech1@nexushub.test — technician</li>
+              <li>buyer@nexushub.test — buyer (B2C)</li>
+              <li>buyer.b2b@nexushub.test — buyer (B2B)</li>
+            </ul>
+            <p className="text-slate-500">No public sign-up — seed accounts only.</p>
+          </div>
         </CardContent>
       </Card>
     </div>

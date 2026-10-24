@@ -47,6 +47,20 @@ export function parseMultiSort(sortBy, sortDir, whitelist, fallback) {
   return parts.length ? parts : fallback;
 }
 
+/**
+ * Build an ORDER BY fragment. Supports qualified columns (`s.created_at`) —
+ * wrapping the whole string in one pair of backticks would make MySQL look
+ * for a column literally named `s.created_at`.
+ * @param {{ col: string, dir: 'ASC'|'DESC' }[]} parts
+ */
 export function sortClause(parts) {
-  return parts.map(({ col, dir }) => `\`${col}\` ${dir}`).join(', ');
+  return parts
+    .map(({ col, dir }) => {
+      const qualified = String(col)
+        .split('.')
+        .map((part) => `\`${part.replace(/`/g, '')}\``)
+        .join('.');
+      return `${qualified} ${dir}`;
+    })
+    .join(', ');
 }
