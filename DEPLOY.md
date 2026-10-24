@@ -61,7 +61,7 @@ Env (set in Vercel for Production, Preview, Development):
 
 | Key | Value |
 |-----|--------|
-| `VITE_API_BASE_URL` | **Placeholder until Render is live:** `https://REPLACE_WITH_RENDER_API.onrender.com/api` — replace with the real Render URL (e.g. `https://nexushub-api.onrender.com/api`) then redeploy the frontend |
+| `VITE_API_BASE_URL` | `https://nexushub-erp.onrender.com/api` (Production; redeploy frontend after changing) |
 
 SPA rewrite is already in `frontend/vercel.json`.
 

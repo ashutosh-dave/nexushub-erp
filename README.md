@@ -189,10 +189,10 @@ Public source: https://github.com/ashutosh-dave/nexushub-erp
 | Service | URL |
 |---------|-----|
 | Frontend | https://nexushub-erp.vercel.app |
-| Backend | _pending Render deploy (needs Aiven MySQL)_ |
-| Health | `{BACKEND}/api/health` |
+| Backend | https://nexushub-erp.onrender.com |
+| Health | https://nexushub-erp.onrender.com/api/health |
 
-Local verification (this workspace): API on `http://localhost:5000`, MySQL 8.4 local, login + analytics + marketplace proration + overlap 409 exercised. Vercel SSO protection disabled for public access.
+Free Render may cold-start slowly (~30–60s) on the first request after idle. Test login: `admin@nexushub.test` / `Password@123`.
 
 ### Deployment notes
 
