@@ -27,6 +27,7 @@ export function useTaskStatusMutation() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] });
       qc.invalidateQueries({ queryKey: ['tickets'] });
+      qc.invalidateQueries({ queryKey: ['technicians'] });
     },
   });
 }

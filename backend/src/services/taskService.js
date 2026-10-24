@@ -319,14 +319,21 @@ export async function changeTaskStatus(id, newStatus, actor) {
 
     const allowBackward = ['admin', 'support_lead'].includes(actor.role);
     if (!canTransitionWorkflow(from, newStatus, { allowBackward })) {
-      throw new ApiError(422, 'INVALID_STATUS_TRANSITION', `Cannot transition from ${from} to ${newStatus}`, {
-        allowed: WORKFLOW_STATUSES,
-      });
+      throw new ApiError(
+        422,
+        'INVALID_STATUS_TRANSITION',
+        `Cannot move from ${from} to ${newStatus}. Advance one step at a time: Open → In-Progress → Field Visit → Resolved.`,
+        { allowed: WORKFLOW_STATUSES, from, to: newStatus }
+      );
     }
 
     if (from === 'Open' && newStatus !== 'Open') {
       if (!task.technician_id || !task.window_start || !task.window_end) {
-        throw new ApiError(422, 'TASK_UNASSIGNED', 'Task must have technician and window before leaving Open');
+        throw new ApiError(
+          422,
+          'TASK_UNASSIGNED',
+          'This task still needs a technician and time window before you can start it. Ask a lead to assign it on Dispatch.'
+        );
       }
     }
 

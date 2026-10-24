@@ -36,6 +36,19 @@ export function useTechnicianScheduleQuery(id, from, to) {
   });
 }
 
+/** Own schedule for the logged-in technician (uses req.user.id on the server). */
+export function useMyScheduleQuery(from, to, options = {}) {
+  return useQuery({
+    queryKey: queryKeys.technicians.schedule('me', from, to),
+    queryFn: async () => {
+      const { data } = await api.get('/technicians/me/schedule', { params: { from, to } });
+      return data.data;
+    },
+    enabled: Boolean(from && to) && options.enabled !== false,
+    ...options,
+  });
+}
+
 export function useCreateShiftMutation() {
   const qc = useQueryClient();
   return useMutation({

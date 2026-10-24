@@ -11,7 +11,7 @@ const TIPS = {
   support_agent:
     'Log clear master tickets on Dispatch (human titles help everyone). Leads assign field work and move status.',
   technician:
-    'Focus on My tasks & shifts. Advance status as you work; add a short note when something matters for support.',
+    'Field workbench: today’s jobs, advance status as you finish each step, check your shifts, and leave a note when support needs site context.',
   buyer:
     'Browse plans and change your connection here. Ops boards are hidden — you only see what you need.',
 };

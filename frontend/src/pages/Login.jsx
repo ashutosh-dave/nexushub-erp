@@ -206,7 +206,7 @@ export default function Login() {
                 <span className="font-mono">agent@nexushub.test</span> — log tickets
               </li>
               <li>
-                <span className="font-mono">tech1@nexushub.test</span> — my field tasks
+                <span className="font-mono">tech1@nexushub.test</span> — field workbench
               </li>
               <li>
                 <span className="font-mono">buyer@nexushub.test</span> — browse &amp; change plans

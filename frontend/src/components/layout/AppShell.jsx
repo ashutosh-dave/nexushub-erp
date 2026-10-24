@@ -50,7 +50,7 @@ const NAV = [
     icon: Wrench,
     roles: ['admin', 'support_lead', 'technician'],
     label: 'Technicians',
-    labelByRole: { technician: 'My tasks', admin: 'Field roster', support_lead: 'Field roster' },
+    labelByRole: { technician: 'Field workbench', admin: 'Field roster', support_lead: 'Field roster' },
   },
   {
     to: '/audit',

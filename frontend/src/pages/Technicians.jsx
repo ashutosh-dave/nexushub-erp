@@ -8,6 +8,7 @@ import { useCreateTicketNoteMutation } from '../api/tickets.js';
 import {
   useCreateShiftMutation,
   useDeleteShiftMutation,
+  useMyScheduleQuery,
   useTechnicianScheduleQuery,
   useTechniciansQuery,
 } from '../api/technicians.js';
@@ -30,12 +31,40 @@ const NEXT_STATUS = {
   'Field Visit': 'Resolved',
 };
 
+const NEXT_LABEL = {
+  Open: 'Start working',
+  'In-Progress': 'On site / field visit',
+  'Field Visit': 'Mark resolved',
+};
+
+function localISODate(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function weekRange() {
-  const from = new Date().toISOString().slice(0, 10);
+  const from = localISODate();
   const toDate = new Date();
   toDate.setDate(toDate.getDate() + 7);
-  const to = toDate.toISOString().slice(0, 10);
+  const to = localISODate(toDate);
   return { from, to };
+}
+
+function taskDayKey(task) {
+  if (!task?.window_start) return null;
+  try {
+    return localISODate(new Date(task.window_start));
+  } catch {
+    return String(task.window_start).slice(0, 10);
+  }
+}
+
+function statusErrorMessage(err) {
+  const api = getApiError(err);
+  if (api.code === 'INVALID_STATUS_TRANSITION') return api.message;
+  if (api.code === 'TASK_UNASSIGNED') return api.message;
+  if (api.code === 'FORBIDDEN') return 'You can only update tasks assigned to you.';
+  return api.message || 'Could not update status';
 }
 
 function formatShiftDate(value) {
@@ -345,22 +374,80 @@ function TechTaskNote({ ticketId }) {
   );
 }
 
-function TechnicianSelfView() {
-  const { user } = useAuth();
-  const techId = user?.id;
-  const { from, to } = useMemo(() => weekRange(), []);
+function TaskRow({ task, onAdvance, advancing }) {
+  const next = NEXT_STATUS[task.status];
+  const label = NEXT_LABEL[task.status];
 
-  const tasksQuery = useTasksQuery(
-    { technicianId: techId, page: 1, pageSize: 100 },
-    { enabled: Boolean(techId) }
+  return (
+    <li className="space-y-2 border-b border-slate-100 py-4 last:border-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-medium text-slate-900">{task.title}</p>
+            <StatusBadge status={task.status} />
+          </div>
+          <p className="text-sm text-slate-500">
+            {task.ticket_no} · {task.task_type}
+          </p>
+          {task.window_start ? (
+            <p className="text-xs font-medium text-slate-600">
+              Window: {formatDateTime(task.window_start)} – {formatDateTime(task.window_end)}
+            </p>
+          ) : (
+            <p className="text-xs text-amber-700">No time window yet — wait for a lead to assign one.</p>
+          )}
+        </div>
+        {next ? (
+          <Button
+            type="button"
+            size="sm"
+            className="shrink-0 self-start"
+            disabled={advancing}
+            onClick={() => onAdvance(task)}
+          >
+            {advancing ? 'Updating…' : label}
+          </Button>
+        ) : null}
+      </div>
+      <TechTaskNote ticketId={task.ticket_id} />
+    </li>
   );
-  const scheduleQuery = useTechnicianScheduleQuery(techId, from, to);
-  const statusMut = useTaskStatusMutation();
+}
 
-  const myTasks = useMemo(
+function TechnicianSelfView() {
+  const { from, to } = useMemo(() => weekRange(), []);
+  const today = from;
+
+  // Backend scopes GET /tasks to req.user.id for technicians — do not filter by client id
+  const tasksQuery = useTasksQuery({ page: 1, pageSize: 100 });
+  const scheduleQuery = useMyScheduleQuery(from, to);
+  const statusMut = useTaskStatusMutation();
+  const [pendingId, setPendingId] = useState(null);
+
+  const openTasks = useMemo(
     () => (tasksQuery.data?.items || []).filter((t) => t.status !== 'Resolved'),
     [tasksQuery.data]
   );
+
+  const { todayTasks, upcomingTasks, unscheduledTasks } = useMemo(() => {
+    const todayList = [];
+    const upcoming = [];
+    const unscheduled = [];
+    for (const task of openTasks) {
+      const day = taskDayKey(task);
+      if (!day) unscheduled.push(task);
+      else if (day === today) todayList.push(task);
+      else upcoming.push(task);
+    }
+    const byWindow = (a, b) =>
+      new Date(a.window_start || 0).getTime() - new Date(b.window_start || 0).getTime();
+    todayList.sort(byWindow);
+    upcoming.sort(byWindow);
+    return { todayTasks: todayList, upcomingTasks: upcoming, unscheduledTasks: unscheduled };
+  }, [openTasks, today]);
+
+  const shifts = scheduleQuery.data?.shifts || [];
+  const windowTasks = (scheduleQuery.data?.tasks || []).filter((t) => t.status !== 'Resolved');
 
   if (tasksQuery.isLoading) return <Loader />;
   if (tasksQuery.error) {
@@ -372,106 +459,170 @@ function TechnicianSelfView() {
   const advanceStatus = (task) => {
     const next = NEXT_STATUS[task.status];
     if (!next) return;
+    setPendingId(task.id);
     statusMut.mutate(
       { id: task.id, status: next },
       {
-        onSuccess: () => toast.success(`Task marked ${next}`),
-        onError: (err) => toast.error(getApiError(err).message),
+        onSuccess: () => toast.success(`Marked ${next}`),
+        onError: (err) => toast.error(statusErrorMessage(err)),
+        onSettled: () => setPendingId(null),
       }
     );
   };
 
+  const renderTaskList = (tasks, empty) =>
+    tasks.length === 0 ? (
+      <p className="py-2 text-sm text-slate-500">{empty}</p>
+    ) : (
+      <ul>
+        {tasks.map((task) => (
+          <TaskRow
+            key={task.id}
+            task={task}
+            onAdvance={advanceStatus}
+            advancing={pendingId === task.id}
+          />
+        ))}
+      </ul>
+    );
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Your field tasks</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Field workbench</h1>
         <p className="text-sm text-slate-600">
-          Advance status as you work. Add a short note when support needs context.
+          Your assigned jobs, time windows, and shifts. Advance status as you work; leave a note when
+          support needs context on site.
         </p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card>
+          <CardContent className="pt-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Open jobs</p>
+            <p className="mt-1 text-2xl font-semibold text-slate-900">{openTasks.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Due today</p>
+            <p className="mt-1 text-2xl font-semibold text-slate-900">{todayTasks.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Shifts this week</p>
+            <p className="mt-1 text-2xl font-semibold text-slate-900">{shifts.length}</p>
+          </CardContent>
+        </Card>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Assigned tasks</CardTitle>
+          <CardTitle>Today&apos;s jobs</CardTitle>
+          <p className="text-xs text-slate-500">{today}</p>
         </CardHeader>
         <CardContent>
-          {myTasks.length === 0 ? (
-            <EmptyState
-              title="No open tasks"
-              description="When a lead assigns you work, it will show up here."
-            />
-          ) : (
-            <ul className="divide-y divide-slate-100">
-              {myTasks.map((task) => (
-                <li key={task.id} className="py-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="font-medium">{task.title}</p>
-                      <p className="text-sm text-slate-500">
-                        {task.ticket_no} · {task.task_type}
-                      </p>
-                      {task.window_start ? (
-                        <p className="text-xs text-slate-500">
-                          {formatDateTime(task.window_start)} – {formatDateTime(task.window_end)}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status={task.status} />
-                      {NEXT_STATUS[task.status] ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={statusMut.isPending}
-                          onClick={() => advanceStatus(task)}
-                        >
-                          → {NEXT_STATUS[task.status]}
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                  <TechTaskNote ticketId={task.ticket_id} />
-                </li>
-              ))}
-            </ul>
-          )}
+          {renderTaskList(todayTasks, 'Nothing scheduled for today. Check upcoming jobs below.')}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Shifts (next 7 days)</CardTitle>
+          <CardTitle>Upcoming &amp; other open work</CardTitle>
         </CardHeader>
-        <CardContent>
-          {scheduleQuery.isLoading ? (
-            <Loader className="py-4" />
-          ) : scheduleQuery.error ? (
-            <p className="text-sm text-red-600">{getApiError(scheduleQuery.error).message}</p>
-          ) : (
-            <ul className="space-y-2 text-sm">
-              {(scheduleQuery.data?.shifts || []).length === 0 ? (
-                <li className="text-slate-500">No shifts scheduled.</li>
-              ) : (
-                scheduleQuery.data.shifts.map((s) => (
-                  <li key={s.id} className="rounded border border-slate-100 px-3 py-2">
-                    {formatShiftDate(s.shift_date)}: {String(s.start_time).slice(0, 5)} –{' '}
-                    {String(s.end_time).slice(0, 5)}
-                  </li>
-                ))
-              )}
-            </ul>
+        <CardContent className="space-y-4">
+          {renderTaskList(
+            [...upcomingTasks, ...unscheduledTasks],
+            'No other open assignments. When a lead assigns you, it appears here.'
           )}
         </CardContent>
       </Card>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>My shifts</CardTitle>
+            <p className="text-xs text-slate-500">
+              {from} → {to}
+            </p>
+          </CardHeader>
+          <CardContent>
+            {scheduleQuery.isLoading ? (
+              <Loader className="py-4" />
+            ) : scheduleQuery.error ? (
+              <ErrorState
+                message={getApiError(scheduleQuery.error).message}
+                onRetry={() => scheduleQuery.refetch()}
+              />
+            ) : shifts.length === 0 ? (
+              <p className="text-sm text-slate-500">No shifts on the roster for this week.</p>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {shifts.map((s) => {
+                  const day = formatShiftDate(s.shift_date);
+                  const isToday = day === today;
+                  return (
+                    <li
+                      key={s.id}
+                      className={`rounded border px-3 py-2 ${
+                        isToday ? 'border-blue-200 bg-blue-50 text-blue-950' : 'border-slate-100'
+                      }`}
+                    >
+                      <span className="font-medium">{day}</span>
+                      {isToday ? <span className="ml-2 text-xs font-semibold uppercase">Today</span> : null}
+                      <span className="ml-2 text-slate-600">
+                        {String(s.start_time).slice(0, 5)} – {String(s.end_time).slice(0, 5)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Assigned time windows</CardTitle>
+            <p className="text-xs text-slate-500">Jobs with a scheduled visit window this week</p>
+          </CardHeader>
+          <CardContent>
+            {scheduleQuery.isLoading ? (
+              <Loader className="py-4" />
+            ) : windowTasks.length === 0 ? (
+              <p className="text-sm text-slate-500">No scheduled windows in this range.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100 text-sm">
+                {windowTasks.map((task) => (
+                  <li key={task.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                    <div>
+                      <p className="font-medium text-slate-900">{task.title}</p>
+                      <p className="text-xs text-slate-500">
+                        {task.ticket_no}
+                        {task.window_start
+                          ? ` · ${formatDateTime(task.window_start)} – ${formatDateTime(task.window_end)}`
+                          : null}
+                      </p>
+                    </div>
+                    <StatusBadge status={task.status} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
 
 export default function Technicians() {
-  useDocumentTitle('Technicians');
   const { hasRole } = useAuth();
+  const isTech = hasRole('technician');
+  useDocumentTitle(isTech ? 'Field workbench' : 'Field roster');
 
-  if (hasRole('technician')) {
+  if (isTech) {
     return <TechnicianSelfView />;
   }
 

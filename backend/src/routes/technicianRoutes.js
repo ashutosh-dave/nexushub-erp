@@ -8,6 +8,7 @@ router.use(authenticate);
 
 router.get('/', authorize('admin', 'support_lead', 'support_agent'), technicianController.list);
 router.get('/available', authorize('admin', 'support_lead'), technicianController.available);
+router.get('/me/schedule', authorize('technician'), technicianController.mySchedule);
 router.get('/:id/schedule', authorize('admin', 'support_lead', 'technician'), technicianController.schedule);
 router.post('/:id/shifts', authorize('admin', 'support_lead'), technicianController.createShift);
 
